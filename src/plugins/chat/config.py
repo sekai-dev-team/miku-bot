@@ -2,7 +2,7 @@ from pydantic import BaseModel, field_validator
 
 class Config(BaseModel):
     # AI request configs: see https://platform.deepseek.com/api-docs/zh-cn/api
-    API_KEY: str = "sk-a93900bef9804a0082c47af77d6c066b"
+    API_KEY: str = ""
     BASE_URL: str =  "https://api.deepseek.com/" # compatible with openai API
     CHAT_MODEL: str = "deepseek-chat"
     CODE_MODEL: str = "deepseek-coder"
@@ -16,7 +16,7 @@ class Config(BaseModel):
     STREAM: bool = True
 
     # plugin configs
-    BOT_QQ: str = "2156394866"
+    BOT_QQ: str = ""
     RESP_INDEX: int = 0
     GROUP_MSG_CONTEXT_LIMIT: int = 32
     GROUP_WORD_CONTEXT_LIMIT: int = 1024
@@ -27,7 +27,7 @@ class Config(BaseModel):
     EMPTY_STR: str = ""
     MATCH_ALL_CMD: str = ""
     TOP_INDEX: int = 0
-    ADMINISTOR: str = "1184438613"
+    ADMINISTOR: str = ""
     FRIEND_REQ: bool = True
     USER_MANUAL: str = f"""你好，我是{AI_NAME}！谢谢你来和我聊天！
 虽然我能做的不多，但还是会尽力帮到你！

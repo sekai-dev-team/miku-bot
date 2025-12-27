@@ -4,10 +4,10 @@ WORKDIR /wheel
 
 RUN python -m pip install --user pipx
 
-COPY ./pyproject.toml \
+COPY ./pyproject.toml ./README.md \
   /wheel/
 
-
+RUN pip install .
 
 RUN python -m pipx run --no-cache nb-cli generate -f /tmp/bot.py
 
