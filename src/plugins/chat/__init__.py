@@ -11,7 +11,7 @@ from datetime import datetime
 from .config import Config as PluginConfig
 from .ai import AI
 from .msg_context import SimulatedGroupMsg
-from .sentence_handler import State, StateMachine
+from .sentence_handler import SentenceBuffer
 from .sys_monitor import SystemMonitor
 from .utils import get_event_info, is_friend
 from .msg_context import SimulatedGroupMsgListener
@@ -24,7 +24,7 @@ driver = get_driver()
 
 # * 1. 闲聊
 is_chatting = False
-ai = on_regex(r"^(nina,|nina，)|([,，]nina)$", flags=re.IGNORECASE, priority=1, block=False)
+ai = on_regex(r"^(miku,|miku，)|([,，]miku)$", flags=re.IGNORECASE, priority=1, block=False)
 @ai.handle()
 async def _(event: GroupMessageEvent):
     splited_info, simulated_msg = get_event_info(event)
@@ -39,33 +39,43 @@ async def _(event: GroupMessageEvent):
     else:
         is_chatting = True
 
-    msg = ""
-    sm = StateMachine()
+    sb = SentenceBuffer()
     context = LISTENER.get_context(group_id)
-    stream = await AI.chat(context)
-    for resp in stream:
-        str_seg = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta.content
-        for char in str_seg:
-            msg += char
-            sm.transit_by(char)
-            cur_state = sm.get_current_state()
-            if cur_state != State.CODE_BLOCK:
-                msg.strip()
-            if cur_state == State.SENTENCE_END:
-                if not msg.isspace():
-                    # delete nina prefix: <Nina: xxx> --> <xxx>
-                    nina_prefix = r"^(Nina[:：])+"
-                    msg = re.sub(nina_prefix, "", msg, flags=re.IGNORECASE).strip()
-                    await ai.send(msg)
-                    # current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {msg}")
-                    LISTENER.listen(group_msg)
-                    await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
-                msg = ""
-                sm.reset()
-            elif cur_state == State.INVALID:
-                sm.reset() 
-    is_chatting = False
+    
+    try:
+        stream = await AI.chat(context)
+        for resp in stream:
+            delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
+            if delta.content:
+                str_seg = delta.content
+                for char in str_seg:
+                    sentence = sb.append(char)
+                    if sentence:
+                        # delete miku prefix: <Miku: xxx> --> <xxx>
+                        miku_prefix = r"^(Miku[:：])+"
+                        sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE).strip()
+                        
+                        if sentence:
+                            await ai.send(sentence)
+                            group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sentence}")
+                            LISTENER.listen(group_msg)
+                            await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
+
+        # 处理流结束后剩余的文本
+        remain_text = sb.force_flush()
+        if remain_text:
+            miku_prefix = r"^(Miku[:：])+"
+            remain_text = re.sub(miku_prefix, "", remain_text, flags=re.IGNORECASE).strip()
+            if remain_text:
+                await ai.send(remain_text)
+                group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {remain_text}")
+                LISTENER.listen(group_msg)
+
+    except Exception as e:
+        logger.error(f"AI Chat Error: {e}")
+        await ai.send("唔...脑子有点乱，等下再聊吧。")
+    finally:
+        is_chatting = False
 
 
 # * 4. 检查系统情况
