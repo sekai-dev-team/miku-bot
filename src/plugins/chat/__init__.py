@@ -89,9 +89,8 @@ async def _():
 user_manual = on_command("/help")
 @user_manual.handle()
 async def _(event: GroupMessageEvent, bot: Bot):
-    info, _ = get_event_info(event)
-    message = Message(MessageSegment.text(f"{PLUGIN_CONFIG.USER_MANUAL}"))
-    await bot.call_api("send_group_forward_msg", group_id=info["group_id"], messages=MessageSegment.node_custom(int(bot.self_id), PLUGIN_CONFIG.AI_NAME, message))
+    message = f"{PLUGIN_CONFIG.USER_MANUAL}"
+    await user_manual.finish(message)
 
 # todo * 9. 服务测试
     
