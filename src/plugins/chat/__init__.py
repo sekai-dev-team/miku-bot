@@ -82,7 +82,25 @@ async def _(event: GroupMessageEvent):
 sys_stat = on_command("/stat", aliases=PLUGIN_CONFIG.SYS_PREFIX, priority=2, permission=SUPERUSER)
 @sys_stat.handle()
 async def _():
-    message = f"{SystemMonitor.balance()}\n{SystemMonitor.memory()}\n{SystemMonitor.cpu()}\n{LISTENER.get_stat_detail()}"
+    # 获取各项状态
+    uptime = SystemMonitor.uptime()
+    balance = await SystemMonitor.balance() # 记得 await 异步方法
+    mem = SystemMonitor.memory()
+    cpu = SystemMonitor.cpu()
+    group_stat = LISTENER.get_stat_detail() # 这里也可以考虑优化输出格式
+    
+    # 拼接消息
+    message = (
+        f"📊 Miku 状态报告\n"
+        f"------------------\n"
+        f"{uptime}\n"
+        f"{cpu}\n"
+        f"{mem}\n"
+        f"------------------\n"
+        f"{balance}\n"
+        f"------------------\n"
+        f"👥 {group_stat}"
+    )
     await sys_stat.send(message)
 
 # * 5. 使用指南
