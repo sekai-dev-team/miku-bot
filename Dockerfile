@@ -32,6 +32,10 @@ RUN pip install --no-cache-dir gunicorn uvicorn[standard]
 COPY pyproject.toml README.md /app/
 RUN pip install --no-cache-dir .
 
+# Install Playwright dependencies and browser
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
 COPY . /app/
 
 CMD ["/start.sh"]

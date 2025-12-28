@@ -5,6 +5,7 @@ from nonebot.rule import to_me
 from nonebot.typing import T_State
 from nonebot.permission import SUPERUSER
 from nonebot.params import ArgPlainText
+from nonebot_plugin_htmlrender import md_to_pic
 # plugin
 import asyncio, re, json
 from datetime import datetime
@@ -53,7 +54,7 @@ async def _(event: GroupMessageEvent):
         # 调用通用 AI 服务
         stream = await AIService.chat_completion(messages)
 
-        for resp in stream:
+        async for resp in stream:
             delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
             if delta.content:
                 str_seg = delta.content
@@ -116,8 +117,9 @@ async def _():
 user_manual = on_command("/help")
 @user_manual.handle()
 async def _(event: GroupMessageEvent, bot: Bot):
-    message = f"{PLUGIN_CONFIG.USER_MANUAL}"
-    await user_manual.finish(message)
+    # 将文本渲染为 Markdown 图片
+    img = await md_to_pic(PLUGIN_CONFIG.USER_MANUAL)
+    await user_manual.finish(MessageSegment.image(img))
 
 # todo * 9. 服务测试
     
