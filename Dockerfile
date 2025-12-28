@@ -32,6 +32,11 @@ RUN pip install --no-cache-dir gunicorn uvicorn[standard]
 COPY pyproject.toml README.md /app/
 RUN pip install --no-cache-dir .
 
+# Install fonts for better rendering
+RUN apt-get update && \
+    apt-get install -y fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install Playwright dependencies and browser
 RUN playwright install chromium
 RUN playwright install-deps chromium

@@ -1,5 +1,5 @@
 # nonebot
-from nonebot.adapters.onebot.v11 import MessageEvent as OneBotMessageEvent, GroupRequestEvent, Bot, Message, MessageSegment, FriendRequestEvent, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent, GroupRequestEvent, Bot, Message, MessageSegment, FriendRequestEvent
 from nonebot import logger, on_command, on_regex, on_request, get_plugin_config, get_driver
 from nonebot.rule import to_me
 from nonebot.typing import T_State
@@ -8,6 +8,7 @@ from nonebot.params import ArgPlainText
 from nonebot_plugin_htmlrender import md_to_pic
 # plugin
 import asyncio, re, json
+from pathlib import Path
 from datetime import datetime
 from .config import Config as PluginConfig
 # from .ai import AI  <-- Removed
@@ -23,6 +24,25 @@ LISTENER = SimulatedGroupMsgListener()
 
 # hook
 driver = get_driver()
+
+# Load Resources
+def load_resource(filename: str) -> str:
+    try:
+        # src/plugins/chat/__init__.py -> src/common/resources/filename
+        current_dir = Path(__file__).parent
+        resource_path = current_dir.parent.parent / "common" / "resources" / filename
+        if resource_path.exists():
+            return resource_path.read_text(encoding="utf-8")
+        else:
+            logger.error(f"Resource file not found: {resource_path}")
+            return f"Error: {filename} not found."
+    except Exception as e:
+        logger.error(f"Failed to load resource {filename}: {e}")
+        return f"Error loading {filename}."
+
+PROMPT_CONTENT = load_resource("miku_prompt.md")
+MANUAL_CONTENT = load_resource("manual.md")
+
 
 # * 1. 闲聊
 is_chatting = False
@@ -46,8 +66,8 @@ async def _(event: GroupMessageEvent):
     
     try:
         # 构造请求消息列表
-        # 1. System Prompt
-        messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": PLUGIN_CONFIG.AI_PROMPT}]
+        # 1. System Prompt (Loaded from file)
+        messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": PROMPT_CONTENT}]
         # 2. Context History
         messages.extend(context)
 
@@ -89,9 +109,9 @@ async def _(event: GroupMessageEvent):
 
 
 # * 4. 检查系统情况
-sys_stat = on_command("/stat", aliases=PLUGIN_CONFIG.SYS_PREFIX, priority=2, permission=SUPERUSER)
+sys_stat = on_command("stat", aliases=PLUGIN_CONFIG.SYS_PREFIX, priority=2, permission=SUPERUSER)
 @sys_stat.handle()
-async def _():
+async def _(event: MessageEvent):  # 支持私聊
     # 获取各项状态
     uptime = SystemMonitor.uptime()
     balance = await SystemMonitor.balance() # 记得 await 异步方法
@@ -114,12 +134,19 @@ async def _():
     await sys_stat.send(message)
 
 # * 5. 使用指南
-user_manual = on_command("/help")
+user_manual = on_command("help")
 @user_manual.handle()
-async def _(event: GroupMessageEvent, bot: Bot):
-    # 将文本渲染为 Markdown 图片
-    img = await md_to_pic(PLUGIN_CONFIG.USER_MANUAL)
-    await user_manual.finish(MessageSegment.image(img))
+async def _(event: MessageEvent, bot: Bot):  # 支持私聊
+    try:
+        # 将预加载的文本渲染为 Markdown 图片
+        if MANUAL_CONTENT.startswith("Error"):
+             await user_manual.finish("说明书好像弄丢了... (文件读取失败)")
+             
+        img = await md_to_pic(MANUAL_CONTENT)
+        await user_manual.finish(MessageSegment.image(img))
+    except Exception as e:
+        logger.error(f"Failed to render help manual: {e}")
+        await user_manual.finish("说明书渲染失败了...请检查日志。")
 
 # todo * 9. 服务测试
     
