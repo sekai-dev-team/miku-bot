@@ -5,6 +5,7 @@ import time
 from datetime import timedelta
 from nonebot import get_plugin_config
 from .config import Config
+from src.common.config import GLOBAL_AI_CONFIG
 
 # constant
 CONFIG = get_plugin_config(Config)
@@ -53,25 +54,19 @@ class SystemMonitor:
     @classmethod
     async def balance(cls) -> str:
         """异步获取余额信息"""
-        if not CONFIG.API_KEY:
+        if not GLOBAL_AI_CONFIG.API_KEY:
             return "💳 API: 未配置 Key"
 
-        # 注意：DeepSeek 的 balance API 路径可能需要根据实际情况调整
-        # 这里假设 base_url 是标准的 OpenAI 格式，DeepSeek 可能有不同的 endpoint
-        # 如果是 DeepSeek，官方通常没有标准的 OpenAI balance 接口，这里保留原逻辑，
-        # 但要注意 URL 拼接风险。假设 CONFIG.BASE_URL 结尾没有 /
-        
-        # 很多兼容 OpenAI 的中转商使用 /dashboard/billing/credit_grants 或自定义接口
-        # 这里沿用原代码的 /user/balance 路径，只改为异步
-        
-        balance_url = f"{CONFIG.BASE_URL}/user/balance"
-        # 移除末尾多余的斜杠以防万一
-        if CONFIG.BASE_URL.endswith("/"):
-             balance_url = f"{CONFIG.BASE_URL}user/balance"
+        # 使用全局配置的 BASE_URL
+        base_url = GLOBAL_AI_CONFIG.BASE_URL
+        if base_url.endswith("/"):
+             balance_url = f"{base_url}user/balance"
+        else:
+             balance_url = f"{base_url}/user/balance"
 
         headers = {
             'Accept': 'application/json',
-            'Authorization': f'Bearer {CONFIG.API_KEY}'
+            'Authorization': f'Bearer {GLOBAL_AI_CONFIG.API_KEY}'
         }
         
         try:

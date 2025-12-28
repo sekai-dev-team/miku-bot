@@ -9,7 +9,8 @@ from nonebot.params import ArgPlainText
 import asyncio, re, json
 from datetime import datetime
 from .config import Config as PluginConfig
-from .ai import AI
+# from .ai import AI  <-- Removed
+from src.common.ai_service import AIService # <-- Added
 from .msg_context import SimulatedGroupMsg
 from .sentence_handler import SentenceBuffer
 from .sys_monitor import SystemMonitor
@@ -43,7 +44,15 @@ async def _(event: GroupMessageEvent):
     context = LISTENER.get_context(group_id)
     
     try:
-        stream = await AI.chat(context)
+        # 构造请求消息列表
+        # 1. System Prompt
+        messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": PLUGIN_CONFIG.AI_PROMPT}]
+        # 2. Context History
+        messages.extend(context)
+
+        # 调用通用 AI 服务
+        stream = await AIService.chat_completion(messages)
+
         for resp in stream:
             delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
             if delta.content:

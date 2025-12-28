@@ -1,20 +1,11 @@
 from pydantic import BaseModel, field_validator
 
 class Config(BaseModel):
-    # AI request configs: see https://platform.deepseek.com/api-docs/zh-cn/api
-    API_KEY: str = ""
-    BASE_URL: str =  "https://api.deepseek.com/" # compatible with openai API
-    CHAT_MODEL: str = "deepseek-chat"
-    CODE_MODEL: str = "deepseek-coder"
+    # Role definitions
     ROLE_SYSTEM: str = "system"
     ROLE_USER: str = "user"
     ROLE_ASSISTANT: str = "assistant"
-    FREQUENCY_PENALTY: float = 0    # need validate
-    PRESENCE_PENALTY: float = 0     # need validate
-    TEMPERATURE: float = 1.1          # need validate
-    MAX_TOKENS: int = 1024          # need validate
-    STREAM: bool = True
-
+    
     # plugin configs
     BOT_QQ: str = ""
     RESP_INDEX: int = 0
@@ -70,30 +61,6 @@ Miku, 谈谈你最近的生活吧
 6. 你的伙伴还有镜音铃、镜音连、巡音流歌、KAITO和MEIKO，你们经常在一起演出。
 """
 
-    @field_validator("FREQUENCY_PENALTY")
-    def check_frequency_penalty(cls, value: float) -> float:
-        if -2 <= value <= 2:
-            return value
-        raise ValueError("frequency penalty must between [-2, 2]")
-    
-    @field_validator("PRESENCE_PENALTY")
-    def check_presence_penalty(cls, value: float) -> float:
-        if -2 <= value <= 2:
-            return value
-        raise ValueError("presence penalty must between [-2, 2]")
-
-    @field_validator("MAX_TOKENS")
-    def check_max_tokens(cls, value: int) -> int:
-        if 1 <= value <= 4096:
-            return value
-        raise ValueError("max tokens must > 1")
-
-    @field_validator("TEMPERATURE")
-    def check_temp(cls, value: float) -> float:
-        if 0 <= value <= 2:
-            return value
-        raise ValueError("temperature must between [0, 2]")
-    
     @field_validator("RESP_INDEX")
     def check_resp_index(cls, value: int) -> int:
         if 0 <= value <= 10:
