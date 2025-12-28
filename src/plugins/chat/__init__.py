@@ -79,7 +79,7 @@ async def _(event: GroupMessageEvent):
 
 
 # * 4. 检查系统情况
-sys_stat = on_command("/stat", rule=to_me(), aliases=PLUGIN_CONFIG.SYS_PREFIX, priority=2, permission=SUPERUSER)
+sys_stat = on_command("/stat", aliases=PLUGIN_CONFIG.SYS_PREFIX, priority=2, permission=SUPERUSER)
 @sys_stat.handle()
 async def _():
     message = f"{SystemMonitor.balance()}\n{SystemMonitor.memory()}\n{SystemMonitor.cpu()}\n{LISTENER.get_stat_detail()}"
@@ -108,12 +108,12 @@ friend_req = on_request()
 async def _(event: FriendRequestEvent, bot: Bot, state: T_State):
     qq = event.get_user_id()
     state["qq"] = qq
-    await bot.send_private_msg(user_id=int(PLUGIN_CONFIG.ADMINISTOR), message=f"{qq} 想要加Nina为好友。")
+    await bot.send_private_msg(user_id=int(PLUGIN_CONFIG.ADMINISTOR), message=f"{qq} 想要加Miku为好友。")
     await bot.set_friend_add_request(flag=event.flag, approve=PLUGIN_CONFIG.FRIEND_REQ)
     if PLUGIN_CONFIG.FRIEND_REQ:
-        await bot.send_private_msg(user_id=int(PLUGIN_CONFIG.ADMINISTOR), message=f"Nina已经同意 {state['qq']} 的好友请求。")
+        await bot.send_private_msg(user_id=int(PLUGIN_CONFIG.ADMINISTOR), message=f"Miku已经同意 {state['qq']} 的好友请求。")
     else:
-        await bot.send_private_msg(user_id=int(PLUGIN_CONFIG.ADMINISTOR), message=f"Nina已经拒绝 {state['qq']} 的好友请求。")
+        await bot.send_private_msg(user_id=int(PLUGIN_CONFIG.ADMINISTOR), message=f"Miku已经拒绝 {state['qq']} 的好友请求。")
 
 # todo 测试
 test = on_request()
