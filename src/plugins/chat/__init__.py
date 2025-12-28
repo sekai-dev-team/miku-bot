@@ -1,4 +1,5 @@
 # nonebot
+import nonebot
 from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent, GroupRequestEvent, Bot, Message, MessageSegment, FriendRequestEvent
 from nonebot import logger, on_command, on_regex, on_request, get_plugin_config, get_driver
 from nonebot.rule import to_me
@@ -144,6 +145,8 @@ async def _(event: MessageEvent, bot: Bot):  # 支持私聊
              
         img = await md_to_pic(MANUAL_CONTENT)
         await user_manual.finish(MessageSegment.image(img))
+    except nonebot.exception.FinishedException:
+        raise
     except Exception as e:
         logger.error(f"Failed to render help manual: {e}")
         await user_manual.finish("说明书渲染失败了...请检查日志。")

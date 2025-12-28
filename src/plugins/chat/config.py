@@ -14,7 +14,7 @@ class Config(BaseModel):
     SEND_INTERVAL: float = 1.5
     AI_NAME: str = "Miku"
     MIKU_PREFIX: set[str | tuple[str, ...]] | None = {"miku,", "miku， ", "miku，", "Miku, ", "Miku,", "Miku， ", "Miku，"}
-    SYS_PREFIX: set[str | tuple[str, ...]] | None = {"/info", "/sts", "/statistic"}
+    SYS_PREFIX: set[str | tuple[str, ...]] | None = {"info", "sts", "statistic", "stat"}
     EMPTY_STR: str = ""
     MATCH_ALL_CMD: str = ""
     TOP_INDEX: int = 0
