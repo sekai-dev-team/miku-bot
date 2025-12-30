@@ -15,6 +15,12 @@ bili_note = on_command("笔记", aliases={"bili_note", "summary"}, priority=5, b
 
 @bili_note.handle()
 async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
+    # Pre-check: Is Docker available?
+    try:
+        docker.from_env().ping()
+    except Exception:
+        await bili_note.finish("当前环境无法连接 Docker，笔记功能暂时不可用哦 (´；ω；｀)")
+
     url = args.extract_plain_text().strip()
     if not url:
         await bili_note.finish("请提供 Bilibili 视频链接哦！没有链接 Miku 无法工作呢 (´・ω・`)")
@@ -39,7 +45,7 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
             container = client.containers.get(CONTAINER_NAME)
             # Exec command: python3 main.py "URL"
             # Return tuple (exit_code, output)
-            return container.exec_run(f'python3 main.py "{video_url}"', stream=False)
+            return container.exec_run(f'python3 main.py "{video_url}" --model deepseek', stream=False)
         except docker.errors.NotFound:
             return None, f"找不到 {CONTAINER_NAME} 容器！它是不是还在偷懒没启动？"
         except Exception as e:
@@ -55,6 +61,7 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
         )
         
         if result[0] is None:
+             # logger.error(f"Docker task failed: {result[1]}") # Log the actual error
              await bili_note.finish(f"调用 Docker 失败了... 呜呜，请检查后台：{result[1]}")
         
         exit_code, output = result
@@ -69,6 +76,11 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
     except asyncio.TimeoutError:
         await bili_note.finish("超时啦！已经过了15分钟还没好，Miku 的处理器要过热了，任务强制终止 (T_T)")
     except Exception as e:
+        # Avoid catching FinishedException (which inherits from BaseException/Exception depending on NoneBot version, but usually best to ignore if it's the finish signal)
+        from nonebot.exception import FinishedException
+        if isinstance(e, FinishedException):
+            raise e
+            
         logger.error(f"Exception during docker execution: {e}")
         await bili_note.finish(f"呜... 执行过程中发生了意料之外的错误：{e}")
 
