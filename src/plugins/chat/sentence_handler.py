@@ -56,14 +56,19 @@ class SentenceBuffer:
                 
                 # 情况 C: 弱标点 (.)
                 elif last_char in self.weak_punctuations:
+                    # Check if it's a list marker (digit before dot)
+                    is_list_marker = len(self.buffer) >= 2 and self.buffer[-2].isdigit()
+
                     # 防碎逻辑：
                     # 1. 如果是数字 (3.14) -> 不切
                     # 2. 如果还是点 (省略号 ...) -> 不切
                     # 3. 如果是闭合引号/粘性字符 -> 不切
+                    # 4. 如果是列表序号 (1.) -> 不切
                     if not char.isdigit() and \
                        char != '.' and \
                        char not in self.closing_brackets and \
-                       char not in self.sticky_chars:
+                       char not in self.sticky_chars and \
+                       not is_list_marker:
                         should_flush = True
             
             # 执行切分
