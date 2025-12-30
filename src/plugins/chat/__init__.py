@@ -2,6 +2,7 @@
 import nonebot
 from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent, GroupRequestEvent, Bot, Message, MessageSegment, FriendRequestEvent
 from nonebot import logger, on_command, on_regex, on_request, get_plugin_config, get_driver
+from nonebot.matcher import Matcher
 from nonebot.rule import to_me
 from nonebot.typing import T_State
 from nonebot.permission import SUPERUSER
@@ -41,8 +42,102 @@ def load_resource(filename: str) -> str:
         logger.error(f"Failed to load resource {filename}: {e}")
         return f"Error loading {filename}."
 
+def get_resource_path(filename: str) -> Path:
+    current_dir = Path(__file__).parent
+    return current_dir.parent.parent / "common" / "resources" / filename
+
 PROMPT_CONTENT = load_resource("miku_prompt.md")
 MANUAL_CONTENT = load_resource("manual.md")
+
+# --- Resource Management Commands ---
+
+# 1. Prompt Management
+cmd_prompt = on_command("aiprompt", aliases={"prompt"}, permission=SUPERUSER, priority=5, block=True)
+
+@cmd_prompt.handle()
+async def _(matcher: Matcher):
+    msg = (
+        "Miku 提示词管理\n"
+        "------------------\n"
+        "当前文件: miku_prompt.md\n"
+        "1. 修改提示词\n"
+        "2. 查看当前提示词\n"
+        "0. 退出交互"
+    )
+    await matcher.send(msg)
+
+@cmd_prompt.got("action")
+async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action")):
+    if action == "0":
+        await matcher.finish("操作已取消。")
+    elif action == "2":
+        path = get_resource_path("miku_prompt.md")
+        if path.exists():
+            content = path.read_text(encoding="utf-8")
+            await matcher.finish(content)
+        else:
+            await matcher.finish("文件不存在！")
+    elif action == "1":
+        await matcher.send("请输入新的提示词：")
+    else:
+        await matcher.reject("指令无法识别，请重新输入（0/1/2）：")
+
+@cmd_prompt.got("content")
+async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action"), content: str = ArgPlainText("content")):
+    if action == "1":
+        path = get_resource_path("miku_prompt.md")
+        try:
+            path.write_text(content, encoding="utf-8")
+            global PROMPT_CONTENT
+            PROMPT_CONTENT = content
+            await matcher.finish("提示词更新成功！Miku 已经记住了新的设定~")
+        except Exception as e:
+            logger.error(f"Failed to write prompt: {e}")
+            await matcher.finish(f"写入失败：{e}")
+
+# 2. Manual Management
+cmd_manual = on_command("mymanual", aliases={"manual", "guide"}, permission=SUPERUSER, priority=5, block=True)
+
+@cmd_manual.handle()
+async def _(matcher: Matcher):
+    msg = (
+        "Miku 使用手册管理\n"
+        "------------------\n"
+        "当前文件: manual.md\n"
+        "1. 修改手册\n"
+        "2. 查看当前手册\n"
+        "0. 退出交互"
+    )
+    await matcher.send(msg)
+
+@cmd_manual.got("action")
+async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action")):
+    if action == "0":
+        await matcher.finish("操作已取消。")
+    elif action == "2":
+        path = get_resource_path("manual.md")
+        if path.exists():
+            content = path.read_text(encoding="utf-8")
+            await matcher.finish(content)
+        else:
+            await matcher.finish("文件不存在！")
+    elif action == "1":
+        await matcher.send("请输入新的手册内容：")
+    else:
+        await matcher.reject("指令无法识别，请重新输入（0/1/2）：")
+
+@cmd_manual.got("content")
+async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action"), content: str = ArgPlainText("content")):
+    if action == "1":
+        path = get_resource_path("manual.md")
+        try:
+            path.write_text(content, encoding="utf-8")
+            global MANUAL_CONTENT
+            MANUAL_CONTENT = content
+            await matcher.finish("使用手册更新成功！")
+        except Exception as e:
+            logger.error(f"Failed to write manual: {e}")
+            await matcher.finish(f"写入失败：{e}")
 
 
 # * 1. 闲聊
