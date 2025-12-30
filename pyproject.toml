@@ -18,6 +18,7 @@ dependencies = [
     "openai",
     "psutil",
     "requests",
+    "docker",
 ]
 
 [project.optional-dependencies]

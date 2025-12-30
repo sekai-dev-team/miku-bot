@@ -24,7 +24,7 @@ class SystemMonitor:
     def uptime(cls) -> str:
         """获取运行时间"""
         delta = timedelta(seconds=int(time.time() - cls._start_time))
-        return f"⏳ 已运行: {delta}"
+        return f"已运行: {delta}"
 
     @classmethod
     def memory(cls) -> str:
@@ -35,7 +35,7 @@ class SystemMonitor:
         
         bar = cls._progress_bar(percent)
         return (
-            f"🧠 内存: {percent}%\n"
+            f"内存: {percent}%\n"
             f"{bar}\n"
             f"   {used_mb:.0f}MB / {total_mb:.0f}MB"
         )
@@ -47,7 +47,7 @@ class SystemMonitor:
         cpu_percent = psutil.cpu_percent(interval=None) 
         bar = cls._progress_bar(cpu_percent)
         return (
-            f"🖥️ CPU: {cpu_percent}%\n"
+            f"CPU: {cpu_percent}%\n"
             f"{bar}"
         )
     
@@ -55,7 +55,7 @@ class SystemMonitor:
     async def balance(cls) -> str:
         """异步获取余额信息"""
         if not GLOBAL_AI_CONFIG.API_KEY:
-            return "💳 API: 未配置 Key"
+            return "API: 未配置 Key"
 
         # 使用全局配置的 BASE_URL
         base_url = GLOBAL_AI_CONFIG.BASE_URL
@@ -74,22 +74,22 @@ class SystemMonitor:
                 response = await client.get(balance_url, headers=headers, timeout=5.0)
                 
             if response.status_code != 200:
-                return f"💳 API余额: 查询失败 ({response.status_code})"
+                return f"API余额: 查询失败 ({response.status_code})"
 
             parsed = response.json()
             
             # 简单保护，防止字段不存在报错
             if 'balance_infos' not in parsed:
-                return f"💳 API余额: 格式无法解析"
+                return f"API余额: 格式无法解析"
 
             balance_info = parsed['balance_infos'][0]
             currency = balance_info.get('currency', 'CNY')
             total = balance_info.get('total_balance', '0')
             
             return (
-                f"💳 API余额: {total} {currency}\n"
+                f"API余额: {total} {currency}\n"
                 f"   (可用: {parsed.get('is_available', False)})"
             )
             
         except Exception as e:
-            return f"💳 API余额: 查询出错"
+            return f"API余额: 查询出错"

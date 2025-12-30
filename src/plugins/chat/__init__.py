@@ -112,17 +112,29 @@ async def _(event: GroupMessageEvent):
 # * 4. 检查系统情况
 sys_stat = on_command("stat", aliases=PLUGIN_CONFIG.SYS_PREFIX, priority=2, permission=SUPERUSER)
 @sys_stat.handle()
-async def _(event: MessageEvent):  # 支持私聊
+async def _(bot: Bot, event: MessageEvent):  # 支持私聊
     # 获取各项状态
     uptime = SystemMonitor.uptime()
     balance = await SystemMonitor.balance() # 记得 await 异步方法
     mem = SystemMonitor.memory()
     cpu = SystemMonitor.cpu()
-    group_stat = LISTENER.get_stat_detail() # 这里也可以考虑优化输出格式
+    
+    # 获取群组信息
+    try:
+        group_list = await bot.get_group_list()
+        total_count = len(group_list)
+    except Exception as e:
+        logger.error(f"Failed to get group list: {e}")
+        total_count = "Unknown"
+        
+    active_groups = list(LISTENER.group_queues.keys())
+    group_stat = f"群总数量: {total_count}"
+    if active_groups:
+         group_stat += f"\n活跃上下文: {len(active_groups)}\n" + "\n".join(active_groups)
     
     # 拼接消息
     message = (
-        f"📊 Miku 状态报告\n"
+        f"Miku 状态报告\n"
         f"------------------\n"
         f"{uptime}\n"
         f"{cpu}\n"
@@ -130,7 +142,7 @@ async def _(event: MessageEvent):  # 支持私聊
         f"------------------\n"
         f"{balance}\n"
         f"------------------\n"
-        f"👥 {group_stat}"
+        f"{group_stat}"
     )
     await sys_stat.send(message)
 
