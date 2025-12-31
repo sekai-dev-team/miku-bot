@@ -135,7 +135,7 @@ async def list_files(bot: Bot, event: Event, state: T_State):
              msg += f"\n... 以及其他 {len(files) - 20} 篇\n"
              break
         msg += f"{i+1}. {f.name}\n"
-    msg += "\n请告诉大小姐您想复习哪一篇呢？\n（回复序号即可，回复“取消”可以退下）"
+    msg += "\n呐，告诉 Miku 您想复习哪一篇呢？\n（回复序号就好，回复“取消”可以结束哦）"
     
     await bili_doc.send(msg)
 
@@ -144,7 +144,7 @@ async def handle_choice(bot: Bot, event: Event, state: T_State, choice: str = Ar
     choice = choice.strip()
     
     if choice in ["取消", "算了", "cancel", "exit"]:
-        await bili_doc.finish("遵命，那 Miku 先把笔记收起来啦，随时都可以再叫我哦 ♪")
+        await bili_doc.finish("好哒，那 Miku 先把笔记收起来啦，随时都可以再叫我哦 ♪")
         
     file_map = state.get("file_map", {})
     target_file = file_map.get(choice)
