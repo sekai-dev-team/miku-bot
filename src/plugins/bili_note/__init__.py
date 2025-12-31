@@ -1,6 +1,7 @@
 from pathlib import Path
 import asyncio
 import docker
+import base64
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg, ArgPlainText
@@ -98,14 +99,22 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
     # Send the new file(s)
     for file_path in new_files:
         try:
-            # Read file bytes to send directly (works across containers)
-            file_content = file_path.read_bytes()
-            await bili_note.send(
-                MessageSegment.file(
-                    file=file_content,
+            # Read file bytes and encode to base64
+            file_bytes = file_path.read_bytes()
+            file_b64 = base64.b64encode(file_bytes).decode('utf-8')
+            
+            if isinstance(event, GroupMessageEvent):
+                await bot.upload_group_file(
+                    group_id=event.group_id,
+                    file=f"base64://{file_b64}",
                     name=file_path.name
                 )
-            )
+            else:
+                await bot.upload_private_file(
+                    user_id=event.user_id,
+                    file=f"base64://{file_b64}",
+                    name=file_path.name
+                )
         except Exception as e:
             logger.error(f"Failed to upload file {file_path}: {e}")
             await bili_note.send(f"哎呀，文件 {file_path.name} 发送失败了... 可能是网络波动？")
@@ -156,14 +165,22 @@ async def handle_choice(bot: Bot, event: Event, state: T_State, choice: str = Ar
     # Send the file
     try:
         await bili_doc.send(f"了解！正在为您取出《{target_file.name}》... 给！这是您要的资料 📚")
-        # Reuse the byte-reading logic
-        file_content = target_file.read_bytes()
-        await bili_doc.send(
-            MessageSegment.file(
-                file=file_content,
+        # Read file bytes and encode to base64
+        file_bytes = target_file.read_bytes()
+        file_b64 = base64.b64encode(file_bytes).decode('utf-8')
+        
+        if isinstance(event, GroupMessageEvent):
+            await bot.upload_group_file(
+                group_id=event.group_id,
+                file=f"base64://{file_b64}",
                 name=target_file.name
             )
-        )
+        else:
+            await bot.upload_private_file(
+                user_id=event.user_id,
+                file=f"base64://{file_b64}",
+                name=target_file.name
+            )
     except Exception as e:
         logger.error(f"Failed to read/send file {target_file}: {e}")
         await bili_doc.finish(f"呜... 取出文件的时候发生了意外：{e}")
