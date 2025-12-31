@@ -2,9 +2,10 @@ from pathlib import Path
 import asyncio
 import docker
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message
-from nonebot.params import CommandArg
+from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
+from nonebot.params import CommandArg, ArgPlainText
 from nonebot.log import logger
+from nonebot.typing import T_State
 
 # Constants
 CONTAINER_NAME = "sekai-bilinote-local"
@@ -97,18 +98,72 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
     # Send the new file(s)
     for file_path in new_files:
         try:
-            if isinstance(event, GroupMessageEvent):
-                await bot.upload_group_file(
-                    group_id=event.group_id,
-                    file=str(file_path),
+            # Read file bytes to send directly (works across containers)
+            file_content = file_path.read_bytes()
+            await bili_note.send(
+                MessageSegment.file(
+                    file=file_content,
                     name=file_path.name
                 )
-            else:
-                await bot.upload_private_file(
-                    user_id=event.user_id,
-                    file=str(file_path),
-                    name=file_path.name
-                )
+            )
         except Exception as e:
             logger.error(f"Failed to upload file {file_path}: {e}")
             await bili_note.send(f"哎呀，文件 {file_path.name} 发送失败了... 可能是网络波动？")
+
+# --- Bilinote List Feature ---
+bili_doc = on_command("笔记列表", aliases={"bilidoc", "doc_list"}, priority=5, block=True)
+
+@bili_doc.handle()
+async def list_files(bot: Bot, event: Event, state: T_State):
+    if not SHARED_DIR.exists():
+        await bili_doc.finish("呜... 找不到存放笔记的柜子 (目录不存在)，请联系管理员检查 Volume 配置吧！")
+    
+    # Sort by modification time, newest first
+    files = sorted(SHARED_DIR.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    if not files:
+        await bili_doc.finish("记忆回廊里空空如也... 目前还没有生成过任何笔记哦。(´・ω・`)")
+    
+    # Store files in state for the next step
+    state["file_map"] = {str(i+1): f for i, f in enumerate(files)}
+    
+    # Build the menu
+    msg = "正在翻阅记忆回廊... 找到了以下这些笔记哦！✨\n"
+    for i, f in enumerate(files):
+        # Limit to 10-15 files to avoid spamming? Let's show all for now or first 20.
+        if i >= 20:
+             msg += f"\n... 以及其他 {len(files) - 20} 篇\n"
+             break
+        msg += f"{i+1}. {f.name}\n"
+    msg += "\n请告诉大小姐您想复习哪一篇呢？\n（回复序号即可，回复“取消”可以退下）"
+    
+    await bili_doc.send(msg)
+
+@bili_doc.got("choice")
+async def handle_choice(bot: Bot, event: Event, state: T_State, choice: str = ArgPlainText("choice")):
+    choice = choice.strip()
+    
+    if choice in ["取消", "算了", "cancel", "exit"]:
+        await bili_doc.finish("遵命，那 Miku 先把笔记收起来啦，随时都可以再叫我哦 ♪")
+        
+    file_map = state.get("file_map", {})
+    target_file = file_map.get(choice)
+    
+    if not target_file:
+        # Reject invalid input
+        await bili_doc.reject("哎呀，这个序号好像不对呢？请重新告诉 Miku 正确的序号，或者说“取消”结束。")
+
+    # Send the file
+    try:
+        await bili_doc.send(f"了解！正在为您取出《{target_file.name}》... 给！这是您要的资料 📚")
+        # Reuse the byte-reading logic
+        file_content = target_file.read_bytes()
+        await bili_doc.send(
+            MessageSegment.file(
+                file=file_content,
+                name=target_file.name
+            )
+        )
+    except Exception as e:
+        logger.error(f"Failed to read/send file {target_file}: {e}")
+        await bili_doc.finish(f"呜... 取出文件的时候发生了意外：{e}")
