@@ -158,6 +158,7 @@ async def _(event: GroupMessageEvent):
         is_chatting = True
 
     sb = SentenceBuffer()
+    is_first_sent = True
     context = LISTENER.get_context(group_id)
     
     try:
@@ -177,7 +178,7 @@ async def _(event: GroupMessageEvent):
                 for char in str_seg:
                     sentence = sb.append(char)
                     if sentence:
-                        # delete miku prefix: <Miku: xxx> --> <xxx>
+                        # 全面去除行首的 Miku: 前缀，增加人味
                         miku_prefix = r"^(Miku[:：])+"
                         sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE).strip()
                         
@@ -192,6 +193,7 @@ async def _(event: GroupMessageEvent):
         if remain_text:
             miku_prefix = r"^(Miku[:：])+"
             remain_text = re.sub(miku_prefix, "", remain_text, flags=re.IGNORECASE).strip()
+            
             if remain_text:
                 await ai.send(remain_text)
                 group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {remain_text}")
