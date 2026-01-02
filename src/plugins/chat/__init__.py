@@ -1,7 +1,7 @@
 # nonebot
 import nonebot
 from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent, GroupRequestEvent, Bot, Message, MessageSegment, FriendRequestEvent
-from nonebot import logger, on_command, on_regex, on_request, get_plugin_config, get_driver
+from nonebot import logger, on_command, on_regex, on_request, get_plugin_config, get_driver, on_message
 from nonebot.matcher import Matcher
 from nonebot.rule import to_me
 from nonebot.typing import T_State
@@ -263,7 +263,7 @@ async def _(event: MessageEvent, bot: Bot):  # 支持私聊
 # todo * 9. 服务测试
     
 # 监听群消息
-listen_background = on_command(PLUGIN_CONFIG.MATCH_ALL_CMD, priority=10, block=True)
+listen_background = on_message(priority=10, block=False)
 @listen_background.handle()
 async def _(event: GroupMessageEvent):
     _, simulated_msg = get_event_info(event)

@@ -77,10 +77,6 @@ class SimulatedGroupMsgListener:
         
         # 遍历队列
         for msg in queue:
-            # --- 3. 时效检查 (Expiration) ---
-            if current_time - msg["timestamp"] > self.CONTEXT_TTL:
-                continue # 忽略太久远的消息
-            
             # --- 4. 格式化 (Formatting) ---
             # 如果是 User，带上名字，让 Miku 知道是谁在说话
             if msg["role"] == CONFIG.ROLE_USER:
