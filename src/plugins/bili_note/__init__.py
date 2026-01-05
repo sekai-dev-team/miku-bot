@@ -7,6 +7,7 @@ from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, 
 from nonebot.params import CommandArg, ArgPlainText
 from nonebot.log import logger
 from nonebot.typing import T_State
+from src.common.bili_prompts import PROMPTS, PROMPT_ALIASES
 
 # Constants
 CONTAINER_NAME = "sekai-bilinote-local"
@@ -23,12 +24,34 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
     except Exception:
         await bili_note.finish("当前环境无法连接 Docker，笔记功能暂时不可用哦 (´；ω；｀)")
 
-    url = args.extract_plain_text().strip()
-    if not url:
+    raw_text = args.extract_plain_text().strip()
+    parts = raw_text.split()
+    
+    if not parts:
         await bili_note.finish("请提供 Bilibili 视频链接哦！没有链接 Miku 无法工作呢 (´・ω・`)")
 
+    url = parts[0]
+    prompt_key = "默认"
+    
+    if len(parts) > 1:
+        user_type = parts[1].lower()
+        if user_type in PROMPT_ALIASES:
+            prompt_key = PROMPT_ALIASES[user_type]
+        elif user_type in PROMPTS:
+            prompt_key = user_type
+        else:
+            valid_types = list(PROMPTS.keys())
+            await bili_note.finish(f"未知的笔记类型 '{user_type}' 哦。\nMiku 支持的类型有：{', '.join(valid_types)}")
+
+    custom_prompt = PROMPTS[prompt_key]
+    
     # Notify user with @
-    await bili_note.send("收到请求！正在呼叫笔记助手进行生成，这可能需要一点时间，请耐心等待 ♪", at_sender=True)
+    msg = "收到请求！正在呼叫笔记助手"
+    if prompt_key != "默认":
+        msg += f"（模式：{prompt_key}）"
+    msg += "进行生成，这可能需要一点时间，请耐心等待 ♪"
+    
+    await bili_note.send(msg, at_sender=True)
 
     # Record files before execution to identify the new one
     try:
@@ -41,13 +64,23 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
         return
 
     # Define the docker execution task
-    def run_docker_task(video_url: str):
+    def run_docker_task(video_url: str, prompt: str = None):
         try:
             client = docker.from_env()
             container = client.containers.get(CONTAINER_NAME)
-            # Exec command: python3 main.py "URL"
+            
+            # Construct command as a list for safety
+            cmd = ["python3", "main.py", video_url, "--model", "deepseek"]
+            
+            # Only append custom prompt if it's explicitly provided (not default, or we want to enforce our default)
+            # Since "默认" is our own defined prompt, we should pass it if we want to ensure consistency,
+            # OR we can skip it to let the backend use its own default.
+            # Let's pass it to ensure the "PROMPTS" file is the single source of truth.
+            if prompt:
+                 cmd.extend(["--custom_prompt", prompt])
+            
             # Return tuple (exit_code, output)
-            return container.exec_run(f'python3 main.py "{video_url}" --model deepseek', stream=False)
+            return container.exec_run(cmd, stream=False)
         except docker.errors.NotFound:
             return None, f"找不到 {CONTAINER_NAME} 容器！它是不是还在偷懒没启动？"
         except Exception as e:
@@ -58,7 +91,7 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
         # Use asyncio.to_thread for blocking I/O
         # Set timeout to 15 minutes (900 seconds)
         result = await asyncio.wait_for(
-            asyncio.to_thread(run_docker_task, url),
+            asyncio.to_thread(run_docker_task, url, custom_prompt),
             timeout=900
         )
         
