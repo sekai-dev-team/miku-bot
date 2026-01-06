@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from nonebot import on_command, get_bot
-from nonebot.adapters.onebot.v11 import Message, MessageEvent, GroupMessageEvent, PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Message, MessageEvent, GroupMessageEvent, PrivateMessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
@@ -51,27 +51,16 @@ async def handle_news(event: MessageEvent, args: Message = CommandArg()):
     try:
         pdf_bytes = await html_to_pdf(html_path)
         
-        # 5. 临时保存 PDF
+        # 5. 临时保存 PDF (保留作为备份/缓存)
         temp_dir = Path("/tmp/miku_news")
         temp_dir.mkdir(parents=True, exist_ok=True)
         file_name = f"News_Summary_{date_str}.pdf"
         temp_pdf_path = temp_dir / file_name
         temp_pdf_path.write_bytes(pdf_bytes)
         
-        # 6. 发送文件 (OneBot V11)
-        bot = get_bot()
-        if isinstance(event, GroupMessageEvent):
-            await bot.call_api("upload_group_file", 
-                group_id=event.group_id,
-                file=str(temp_pdf_path),
-                name=file_name
-            )
-        elif isinstance(event, PrivateMessageEvent):
-            await bot.call_api("upload_private_file",
-                user_id=event.user_id,
-                file=str(temp_pdf_path),
-                name=file_name
-            )
+        # 6. 发送文件 (使用 MessageSegment 发送 bytes，避免跨容器路径问题)
+        # 虽然这会作为文件消息发送而不是上传到群文件，但兼容性最好
+        await news_cmd.finish(MessageSegment.file(pdf_bytes, name=file_name))
             
     except Exception as e:
         logger.exception("新闻 PDF 生成失败")
