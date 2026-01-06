@@ -18,3 +18,4 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data/bilinote_shared:/app/data/local_bilinote
+      - /home/kami/secrets/data/trend_news:/app/data/news
