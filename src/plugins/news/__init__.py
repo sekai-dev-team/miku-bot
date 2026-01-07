@@ -1,9 +1,10 @@
 import os
+import base64
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from nonebot import on_command, get_bot
-from nonebot.adapters.onebot.v11 import Message, MessageEvent, GroupMessageEvent, PrivateMessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent, PrivateMessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
@@ -19,7 +20,7 @@ NEWS_ROOT = Path("/app/data/news")
 news_cmd = on_command("news", aliases={"新闻"}, priority=5, block=True)
 
 @news_cmd.handle()
-async def handle_news(event: MessageEvent, args: Message = CommandArg()):
+async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
     # 1. 解析参数 (offset)
     arg_str = args.extract_plain_text().strip()
     offset = 0
@@ -58,13 +59,30 @@ async def handle_news(event: MessageEvent, args: Message = CommandArg()):
         temp_pdf_path = temp_dir / file_name
         temp_pdf_path.write_bytes(pdf_bytes)
         
-        # 6. 发送文件 (使用 MessageSegment 发送 bytes，避免跨容器路径问题)
-        # 虽然这会作为文件消息发送而不是上传到群文件，但兼容性最好
-        await news_cmd.finish(MessageSegment.file(pdf_bytes, name=file_name))
+        # 6. 发送文件
+        # 使用 base64 编码发送，避免容器路径映射问题
+        file_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        
+        if isinstance(event, GroupMessageEvent):
+            await bot.upload_group_file(
+                group_id=event.group_id,
+                file=f"base64://{file_b64}",
+                name=file_name
+            )
+        elif isinstance(event, PrivateMessageEvent):
+            await bot.upload_private_file(
+                user_id=event.user_id,
+                file=f"base64://{file_b64}",
+                name=file_name
+            )
+        else:
+            await news_cmd.finish("当前场景不支持发送文件呢。")
+
+        await news_cmd.finish()
             
     except Exception as e:
-        logger.exception("新闻 PDF 生成失败")
-        await news_cmd.finish(f"抱歉，生成 PDF 过程中出现了点小问题：{str(e)}")
+        logger.exception("新闻 PDF 生成或发送失败")
+        await news_cmd.finish(f"抱歉，过程中出现了点小问题：{str(e)}")
 
 async def html_to_pdf(html_path: Path) -> bytes:
     """使用 Playwright 渲染 HTML 为 PDF"""
