@@ -6,7 +6,7 @@ from datetime import datetime
 import time
 
 from .config import plugin_config
-from .manager import history_manager
+from .service import HistoryService
 
 # --- 规则定义 ---
 
@@ -55,7 +55,7 @@ async def _(event: GroupMessageEvent):
     recorder_id = str(event.user_id)
 
     # 保存
-    success = history_manager.add_history(
+    success = HistoryService.add_history(
         group_id, user_id, user_name, content, "text", timestamp, recorder_id
     )
 
@@ -74,22 +74,15 @@ review_cmd_matcher = on_message(rule=is_review_request, priority=5, block=True)
 @review_cmd_matcher.handle()
 async def send_random_history(bot: Bot, event: GroupMessageEvent):
     group_id = str(event.group_id)
-    history = history_manager.get_random_history(group_id)
-
-    if not history:
-        await review_cmd_matcher.finish("这个群还没有黑历史哦... 要不你先贡献一条？(¬‿¬)")
-
-    # 格式化输出
-    # 转换时间戳
-    date_str = datetime.fromtimestamp(history['timestamp']).strftime('%Y-%m-%d')
+    # 直接获取格式化好的文本，虽然这里是给 AI 用的格式，但人类读也没问题
+    # 或者为了保持原来的风格，我们可以让 Service 返回 raw data，但在 Service.py 里只写了 formatted
+    # 让我们修改 Service.py 增加 raw getter 或者直接用 formatted 稍微偷懒一下？
+    # 不，直接用 formatted 挺清楚的。
+    msg = HistoryService.get_random_history_formatted(group_id)
     
-    # 构造消息
-    msg = (
-        f"📅 {date_str}\n"
-        f"👤 {history['user_name']} ({history['user_id']}) 说：\n"
-        f"“{history['content']}”"
-    )
-    
+    if "暂时没有" in msg:
+         await review_cmd_matcher.finish("这个群还没有黑历史哦... 要不你先贡献一条？(¬‿¬)")
+
     await review_cmd_matcher.finish(msg)
 
 
@@ -104,20 +97,9 @@ async def _(bot: Bot, event: PokeNotifyEvent):
         return
 
     group_id = str(event.group_id)
-    history = history_manager.get_random_history(group_id)
+    msg = HistoryService.get_random_history_formatted(group_id)
 
-    if not history:
-        # 如果没有历史，就随便卖个萌
+    if "暂时没有" in msg:
         await poke_matcher.finish("别戳啦，还没有黑历史可以看呢！")
 
-    date_str = datetime.fromtimestamp(history['timestamp']).strftime('%Y-%m-%d')
-    
-    # 稍微不同的文案
-    msg = (
-        f"既然你诚心诚意地戳了...\n"
-        f"📅 {date_str}\n"
-        f"👤 {history['user_name']} 说：\n"
-        f"“{history['content']}”"
-    )
-    
-    await poke_matcher.finish(msg)
+    await poke_matcher.finish(f"既然你诚心诚意地戳了...\n{msg}")

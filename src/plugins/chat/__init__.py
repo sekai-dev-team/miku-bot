@@ -15,6 +15,7 @@ from datetime import datetime
 from .config import Config as PluginConfig
 # from .ai import AI  <-- Removed
 from src.common.ai_service import AIService # <-- Added
+from src.common.tool_registry import tool_registry
 from .msg_context import SimulatedGroupMsg
 from .sentence_handler import SentenceBuffer
 from .sys_monitor import SystemMonitor
@@ -163,30 +164,68 @@ async def _(event: GroupMessageEvent):
     
     try:
         # 构造请求消息列表
-        # 1. System Prompt (Loaded from file)
-        messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": PROMPT_CONTENT}]
+        # 1. System Prompt (Loaded from file) + Context Injection
+        current_sys_prompt = PROMPT_CONTENT + f"\n\n[Context]\nCurrent Group ID: {group_id}"
+        messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": current_sys_prompt}]
         # 2. Context History
         messages.extend(context)
 
-        # 调用通用 AI 服务
-        stream = await AIService.chat_completion(messages)
-
-        async for resp in stream:
-            delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
-            if delta.content:
-                str_seg = delta.content
-                for char in str_seg:
-                    sentence = sb.append(char)
+        # ---------------------------------------------------------------------
+        # Stage 1: Intent Detection (Non-Stream)
+        # ---------------------------------------------------------------------
+        # 尝试调用工具，关闭流式以确保解析稳定
+        response = await AIService.chat_completion(messages, tools=tool_registry.get_tools(), stream=False)
+        first_msg = response.choices[0].message
+        
+        # 准备一个内部函数来处理文本片段（复用流式和非流式逻辑）
+        async def process_text_segment(text_seg: str):
+            for char in text_seg:
+                sentence = sb.append(char)
+                if sentence:
+                    # 全面去除行首的 Miku: 前缀，增加人味
+                    miku_prefix = r"^(Miku[:：])+"
+                    sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE).strip()
+                    
                     if sentence:
-                        # 全面去除行首的 Miku: 前缀，增加人味
-                        miku_prefix = r"^(Miku[:：])+"
-                        sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE).strip()
-                        
-                        if sentence:
-                            await ai.send(sentence)
-                            group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sentence}")
-                            LISTENER.listen(group_msg)
-                            await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
+                        await ai.send(sentence)
+                        group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sentence}")
+                        LISTENER.listen(group_msg)
+                        await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
+
+        if first_msg.tool_calls:
+            # --- Tool Call Branch ---
+            messages.append(first_msg) # 把 AI 的调用意图加进去
+            
+            for tool_call in first_msg.tool_calls:
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                    # 执行工具
+                    tool_res = await tool_registry.dispatch(tool_call.function.name, args)
+                except Exception as e:
+                    tool_res = f"Error executing tool: {e}"
+                
+                # 把结果加进去
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": str(tool_res)
+                })
+            
+            # -----------------------------------------------------------------
+            # Stage 2: Result Generation (Stream)
+            # -----------------------------------------------------------------
+            # 带着结果再次请求 AI (开启流式，不传 tools 防止循环)
+            stream = await AIService.chat_completion(messages, stream=True)
+            async for resp in stream:
+                delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
+                if delta.content:
+                    await process_text_segment(delta.content)
+        
+        else:
+            # --- Direct Text Branch ---
+            # 没有调用工具，直接处理文本
+            if first_msg.content:
+                await process_text_segment(first_msg.content)
 
         # 处理流结束后剩余的文本
         remain_text = sb.force_flush()

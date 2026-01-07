@@ -1,5 +1,6 @@
 from openai import AsyncOpenAI
 from .config import GLOBAL_AI_CONFIG
+from typing import Optional, List, Dict, Any
 
 class AIService:
     _client = None
@@ -15,20 +16,35 @@ class AIService:
         return cls._client
 
     @classmethod
-    async def chat_completion(cls, messages: list[dict]):
+    async def chat_completion(cls, messages: list[dict], tools: Optional[List[Dict[str, Any]]] = None, tool_choice: str = "auto", stream: Optional[bool] = None):
         """
         通用的对话接口
         :param messages: 标准的 OpenAI 消息列表 [{"role": "user", "content": "..."}]
-        :return: Stream Response
+        :param tools: 工具定义列表 (OpenAI 格式)
+        :param tool_choice: 工具选择策略
+        :param stream: 是否流式输出。如果不传，默认使用 Config 配置。
+        :return: Stream Response (if configured) or full response
         """
         client = cls.get_client()
-        response = await client.chat.completions.create(
-            model=GLOBAL_AI_CONFIG.CHAT_MODEL,
-            messages=messages, # type: ignore
-            frequency_penalty=GLOBAL_AI_CONFIG.FREQUENCY_PENALTY,
-            presence_penalty=GLOBAL_AI_CONFIG.PRESENCE_PENALTY,
-            temperature=GLOBAL_AI_CONFIG.TEMPERATURE,
-            max_tokens=GLOBAL_AI_CONFIG.MAX_TOKENS,
-            stream=GLOBAL_AI_CONFIG.STREAM
-        )
+        
+        # 默认使用配置，但允许覆盖
+        use_stream = GLOBAL_AI_CONFIG.STREAM if stream is None else stream
+
+        # 构造参数字典
+        kwargs = {
+            "model": GLOBAL_AI_CONFIG.CHAT_MODEL,
+            "messages": messages,
+            "frequency_penalty": GLOBAL_AI_CONFIG.FREQUENCY_PENALTY,
+            "presence_penalty": GLOBAL_AI_CONFIG.PRESENCE_PENALTY,
+            "temperature": GLOBAL_AI_CONFIG.TEMPERATURE,
+            "max_tokens": GLOBAL_AI_CONFIG.MAX_TOKENS,
+            "stream": use_stream
+        }
+        
+        # 只有当提供了 tools 时才添加相关参数
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+
+        response = await client.chat.completions.create(**kwargs)
         return response
