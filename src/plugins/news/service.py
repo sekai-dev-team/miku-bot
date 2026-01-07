@@ -1,4 +1,5 @@
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from bs4 import BeautifulSoup
 from nonebot.log import logger
@@ -7,8 +8,8 @@ from src.common.ai_service import AIService
 from src.common.tool_registry import tool_registry
 from .data_source import NewsDatabase
 
-# 路径定义 - 对应 docker-compose 中的挂载点
-NEWS_ROOT = Path("/app/data/news")
+# 路径定义 - 优先从环境变量读取，适配容器外调试
+NEWS_ROOT = Path(os.getenv("NEWS_DATA_PATH", "/app/data/news"))
 
 class NewsService:
     @staticmethod
@@ -66,15 +67,39 @@ class NewsService:
     )
     async def generate_summary(date_str: str) -> str:
         """读取指定日期的 HTML 并调用 DeepSeek 生成总结"""
-        # 如果传入的是 "today" 或者空，修正为今天
-        if not date_str or date_str == "today":
-             date_str = datetime.now().strftime("%Y-%m-%d")
+        # 预处理日期字符串
+        if not date_str:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        else:
+            date_str = date_str.strip()
+            if date_str in ["today", "今天"]:
+                 date_str = datetime.now().strftime("%Y-%m-%d")
+            elif date_str in ["yesterday", "昨天"]:
+                 date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # 简单的格式校验 (YYYY-MM-DD)
+        try:
+            # 尝试验证格式，如果不是标准格式，可能需要更复杂的解析，这里先假设 AI 会乖乖听话
+            # 或者如果是 2026/01/07 这种，尝试替换
+            if "/" in date_str:
+                date_str = date_str.replace("/", "-")
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            # 如果格式不对，再次回退到今天，或者直接报错
+            logger.warning(f"日期格式错误: {date_str}，回退到今天")
+            # date_str = datetime.now().strftime("%Y-%m-%d") 
+            # 也许不应该回退，而是返回错误提示，让 AI 知道它传错了
+            return f"日期格式不对哦 ({date_str})，Miku 需要 YYYY-MM-DD 的格式呢。"
 
         html_path = NEWS_ROOT / date_str / "html" / "当日汇总.html"
         db_path = NEWS_ROOT / "news" / f"{date_str}.db"
         
+        logger.info(f"[NewsService] 正在尝试访问 HTML: {html_path.absolute()}")
+        logger.info(f"[NewsService] 正在尝试访问 DB: {db_path.absolute()}")
+        
         if not html_path.exists():
-            return "找不到当天的数据文件，无法生成总结呢 (>_<)"
+            logger.error(f"[NewsService] HTML 文件不存在: {html_path.absolute()}")
+            return f"找不到 {date_str} 的数据文件，路径是 {html_path.absolute()}，请检查文件是否存在呢。"
             
         raw_data = NewsService.extract_news_data(html_path)
         if not raw_data:

@@ -22,8 +22,8 @@ try:
 except ImportError:
     logger.error("未找到 nonebot_plugin_htmlrender 插件，PDF 渲染功能将不可用。")
 
-# 路径定义 - 对应 docker-compose 中的挂载点
-NEWS_ROOT = Path("/app/data/news")
+# 路径定义 - 优先从环境变量读取
+NEWS_ROOT = Path(os.getenv("NEWS_DATA_PATH", "/app/data/news"))
 
 news_cmd = on_command("news", aliases={"新闻"}, priority=5, block=True)
 
@@ -103,7 +103,7 @@ async def is_reply_summary(event: MessageEvent) -> bool:
     """检查是否是回复消息，且内容包含关键词"""
     if not event.reply:
         return False
-    text = event.get_plain_text().strip()
+    text = event.get_plaintext().strip()
     return text in ["summary", "总结", "ai", "AI", "太长不看"]
 
 summary_reply = on_message(rule=is_reply_summary, priority=5, block=True)
