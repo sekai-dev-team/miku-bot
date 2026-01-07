@@ -5,7 +5,7 @@ class SentenceBuffer:
         self.in_inline_code = False # `code`
         
         # 强标点：遇到这些通常意味着句子结束
-        self.strong_punctuations = set(['?', '!', '\n', '。', '？', '！', '…'])
+        self.strong_punctuations = set(['?', '!', '\n', '。', '？', '！', '…', '~', '～', '♪'])
         # 弱标点：需要看上下文（比如点号）
         self.weak_punctuations = set(['.'])
         # 闭合符号：如果标点后面紧跟这些，说明标点是在引号/括号里，不应该切分
@@ -22,8 +22,8 @@ class SentenceBuffer:
         """
         向缓冲区追加字符。
         逻辑：
-        1. 检查 '上一个字符' 是否构成了断句条件。
-        2. 如果是，则弹出 '上一个字符之前的所有内容' 作为一句话。
+        1. 检查 '上一个字符' 或 '当前字符' 是否构成了断句条件。
+        2. 如果是，则弹出缓冲区内容。
         3. 将当前 'char' 加入缓冲区。
         """
         if not char:
@@ -31,7 +31,7 @@ class SentenceBuffer:
 
         result = None
         
-        # 1. 尝试基于“上一刻的状态”进行切分
+        # 1. 尝试进行切分
         if self.buffer:
             last_char = self.buffer[-1]
             should_flush = False
@@ -39,14 +39,15 @@ class SentenceBuffer:
             if self.in_code_block or self.in_inline_code:
                 should_flush = False
             else:
-                # 情况 A: 换行符通常是绝对的切分点
-                if last_char == '\n':
+                # 情况 A: 换行符是绝对的切分点
+                # 如果当前是换行，或者上一个是换行，都直接切
+                if char == '\n' or last_char == '\n':
                     should_flush = True
                 
-                # 情况 B: 强标点 (。！？)
+                # 情况 B: 强标点 (。！？~～♪)
                 elif last_char in self.strong_punctuations:
                     # 防碎逻辑：
-                    # 1. 如果当前字符也是强标点 -> 不切 (处理 ?! ！！！)
+                    # 1. 如果当前字符也是强标点 -> 不切 (处理 ?! ！！！ ~~~)
                     # 2. 如果是闭合符号 -> 不切 (处理 ！”)
                     # 3. 如果是粘性字符 -> 不切 (处理 ？！(・∀・) )
                     if char not in self.strong_punctuations and \
@@ -56,20 +57,17 @@ class SentenceBuffer:
                 
                 # 情况 C: 弱标点 (.)
                 elif last_char in self.weak_punctuations:
-                    # Check if it's a list marker (digit before dot)
                     is_list_marker = len(self.buffer) >= 2 and self.buffer[-2].isdigit()
-
-                    # 防碎逻辑：
-                    # 1. 如果是数字 (3.14) -> 不切
-                    # 2. 如果还是点 (省略号 ...) -> 不切
-                    # 3. 如果是闭合引号/粘性字符 -> 不切
-                    # 4. 如果是列表序号 (1.) -> 不切
                     if not char.isdigit() and \
                        char != '.' and \
                        char not in self.closing_brackets and \
                        char not in self.sticky_chars and \
                        not is_list_marker:
                         should_flush = True
+                
+                # 情况 D: 长度兜底。如果缓冲区太长了且遇到了空格，强制切分
+                elif len(self.buffer) > 50 and char.isspace():
+                    should_flush = True
             
             # 执行切分
             if should_flush:
