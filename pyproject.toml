@@ -19,6 +19,7 @@ dependencies = [
     "psutil",
     "requests",
     "docker",
+    "beautifulsoup4",
 ]
 
 [project.optional-dependencies]
