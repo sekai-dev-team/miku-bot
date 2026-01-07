@@ -14,6 +14,7 @@ from nonebot.log import logger
 
 from src.common.ai_service import AIService
 from src.common.config import GLOBAL_AI_CONFIG
+from .data_source import NewsDatabase
 
 # 尝试导入渲染引擎
 try:
@@ -68,6 +69,7 @@ def extract_news_data(html_path: Path) -> str:
 async def generate_ai_summary(date_str: str) -> str:
     """读取指定日期的 HTML 并调用 DeepSeek 生成总结"""
     html_path = NEWS_ROOT / date_str / "html" / "当日汇总.html"
+    db_path = NEWS_ROOT / "news" / f"{date_str}.db"
     
     if not html_path.exists():
         return "找不到当天的数据文件，无法生成总结呢 (>_<)"
@@ -75,6 +77,27 @@ async def generate_ai_summary(date_str: str) -> str:
     raw_data = extract_news_data(html_path)
     if not raw_data:
         return "数据解析失败，HTML 可能损坏了..."
+
+    # 获取数据库统计信息作为补充上下文
+    db_stats_text = ""
+    if db_path.exists():
+        try:
+            db = NewsDatabase(db_path)
+            # 1. 获取最持久话题
+            long_topics = db.get_longest_running_topics(3)
+            if long_topics:
+                db_stats_text += "\n【客观数据补充（请参考这些数据来判断热度）】\n"
+                db_stats_text += "今日最持久的话题（霸榜时间最长）：\n"
+                for t in long_topics:
+                    db_stats_text += f"- 《{t['title']}》 ({t['platform']})\n"
+            
+            # 2. 平台分布
+            plat_stats = db.get_platform_stats()
+            if plat_stats:
+                top_plat = max(plat_stats, key=plat_stats.get)
+                db_stats_text += f"今日最活跃平台：{top_plat} (贡献了 {plat_stats[top_plat]} 条热搜)\n"
+        except Exception as e:
+            logger.error(f"读取 DB 统计失败: {e}")
         
     system_prompt = (
         "你是 Miku，一个元气可爱的 AI 助手。这是今天收集到的新闻热搜列表（仅包含标题和关键词）。"
@@ -82,16 +105,18 @@ async def generate_ai_summary(date_str: str) -> str:
         "要求：\n"
         "1. 按话题分类（如：国际风云、科技前沿、社会百态等，你可以根据关键词重新归类，也可以参考原有的关键词）。\n"
         "2. 每个分类下，挑选 1-3 个最重要/最吸睛的标题，用**一句话**概括这个话题下的核心事件（只能基于标题猜测，不要编造细节）。\n"
-        "3. 如果有明显的情绪（如愤怒、开心），可以在解说中流露出来。\n"
+        "3. 参考【客观数据补充】中的信息，如果某些话题是“持久霸榜”的，请在总结中特别提到（例如：“这件事今天大家都在讨论哦！”）。\n"
         "4. 结尾给一个『Miku 的碎碎念』，评价一下今天的世界。\n"
         "5. 保持格式清晰，使用 Emoji 点缀。\n"
         "6. 字数控制在 500 字以内。"
     )
     
+    user_content = f"今日新闻列表:\n{raw_data}\n{db_stats_text}"
+
     try:
         response = await AIService.chat_completion([
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"今日新闻列表:\n{raw_data}"}
+            {"role": "user", "content": user_content}
         ])
         
         # 处理流式响应
@@ -112,22 +137,59 @@ async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg(
     arg_list = args.extract_plain_text().strip().split()
     offset = 0
     need_summary = False
+    search_keyword = None
     
-    for arg in arg_list:
-        if arg in ["summary", "总结", "ai"]:
-            need_summary = True
-        else:
-            try:
-                # 支持传入 -1, -2 等，也支持传入 1, 2
-                val = int(arg)
-                offset = val if val <= 0 else -val
-            except ValueError:
-                pass # 忽略非数字非指令参数
+    # 简单的参数解析逻辑
+    if len(arg_list) >= 2 and arg_list[0] in ["search", "搜", "搜索", "find"]:
+        search_keyword = arg_list[1]
+    else:
+        for arg in arg_list:
+            if arg in ["summary", "总结", "ai"]:
+                need_summary = True
+            else:
+                try:
+                    # 支持传入 -1, -2 等，也支持传入 1, 2
+                    val = int(arg)
+                    offset = val if val <= 0 else -val
+                except ValueError:
+                    pass # 忽略非数字非指令参数
 
     # 2. 计算目标日期
     target_date = datetime.now() + timedelta(days=offset)
     date_str = target_date.strftime("%Y-%m-%d")
-    
+
+    # --- 新增分支：搜索模式 ---
+    if search_keyword:
+        db_path = NEWS_ROOT / "news" / f"{date_str}.db"
+        if not db_path.exists():
+             await news_cmd.finish(f"找不到 {date_str} 的数据库，无法搜索呢。")
+        
+        db = NewsDatabase(db_path)
+        result = db.search_keyword(search_keyword)
+        
+        if result.get("error"):
+            await news_cmd.finish(f"搜索出错了：{result['error']}")
+            
+        if result["total"] == 0:
+             await news_cmd.finish(f"在 {date_str} 的记录里没有找到关于“{search_keyword}”的新闻呢。")
+             
+        # 构造搜索结果回复
+        msg = f"🔍 关键词【{search_keyword}】({date_str})\n"
+        msg += f"共找到 {result['total']} 条相关热搜。\n"
+        
+        if result['best_rank']:
+            msg += f"🔥 最高排名：Top {result['best_rank']}\n"
+            
+        msg += "📊 平台分布：\n"
+        for plat, count in result['platform_dist'].items():
+            msg += f"- {plat}: {count} 条\n"
+            
+        msg += "\n📝 相关标题（前5条）：\n"
+        for t in result['titles'][:5]:
+            msg += f"- {t}\n"
+            
+        await news_cmd.finish(msg)
+
     # 3. 构造 HTML 文件路径
     html_path = NEWS_ROOT / date_str / "html" / "当日汇总.html"
     
@@ -143,12 +205,9 @@ async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg(
     # 发送 PDF
     try:
         pdf_bytes = await html_to_pdf(html_path)
-        temp_dir = Path("/tmp/miku_news")
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        file_name = f"新闻汇总_{date_str}.pdf"
-        temp_pdf_path = temp_dir / file_name
-        temp_pdf_path.write_bytes(pdf_bytes)
         
+        # 发送文件
+        file_name = f"新闻汇总_{date_str}.pdf"
         file_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
         file_url = f"base64://{file_b64}"
         
