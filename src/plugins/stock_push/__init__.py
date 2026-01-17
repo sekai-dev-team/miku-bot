@@ -1,5 +1,5 @@
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Message, MessageEvent, Bot, GroupMessageEvent, PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Message, MessageEvent, Bot, GroupMessageEvent, PrivateMessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.log import logger
 import base64
@@ -24,18 +24,39 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
         for idx, item in enumerate(top_gainers, 1):
             msg += f"{idx}. {item['code']}: {item['close']} ({item['pct_chg']}%)\n"
         
-        msg += "\n💡 Tip: 发送 /stock <代码> 查询详情，或 /stock review 看复盘。"
+        msg += "\n💡 Tip: 发送 /stock list 查看所有自选股，或 /stock <代码> 查看详情。"
         await stock_cmd.finish(msg)
         return
 
-    # 2. 特殊指令：复盘 (market review)
+    # 2. 特殊指令：自选股列表 (watchlist)
+    if arg_text in ["list", "列表", "自选", "all"]:
+        watchlist = StockService.get_watchlist()
+        if not watchlist:
+            await stock_cmd.finish("暂时没有获取到自选股数据。")
+            return
+        
+        latest_date = StockService.get_latest_date()
+        msg = f"📅 自选股监控清单 ({latest_date})\n"
+        msg += "------------------------------\n"
+        # 排序：涨幅从高到低
+        watchlist.sort(key=lambda x: x['pct_chg'], reverse=True)
+        
+        for item in watchlist:
+            emoji = "🔴" if item['pct_chg'] > 0 else "🟢" if item['pct_chg'] < 0 else "⚪"
+            # 兼容A股红涨绿跌习惯，或者根据Emoji: 🔴涨 🟢跌
+            msg += f"{emoji} {item['code']}: {item['close']} ({item['pct_chg']}%) \n"
+            
+        msg += "\n💡 发送 /stock <代码> 可查看该股的 AI 深度研报卡片。"
+        await stock_cmd.finish(msg)
+        return
+
+    # 3. 特殊指令：复盘 (market review)
     if arg_text in ["review", "复盘", "大盘", "market"]:
         content = StockService.get_market_review_content()
-        # 由于内容可能较长，但通常在1000字以内，直接发送文本
         await stock_cmd.finish(f"📅 最新大盘复盘：\n\n{content}")
         return
 
-    # 3. 特殊指令：研报 (analysis report)
+    # 4. 特殊指令：研报 (analysis report) - 发送完整文件
     if arg_text in ["report", "研报", "分析", "analysis"]:
         file_path = StockService.get_latest_report_file("report")
         if not file_path:
@@ -45,7 +66,6 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
         await stock_cmd.send("正在为您提取最新的深度研报 (Markdown文件)... 📑")
         
         try:
-            # 发送文件
             file_bytes = file_path.read_bytes()
             file_b64 = base64.b64encode(file_bytes).decode('utf-8')
             file_name = file_path.name
@@ -59,11 +79,27 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
             await stock_cmd.finish(f"文件发送失败了... ({e})")
         return
 
-    # 4. 默认行为：查询个股代码
+    # 5. 个股查询：尝试生成图片卡片，失败则回退到纯文本
     code = arg_text
+    
+    # 尝试提取研报内容并渲染图片
+    report_content = StockService.extract_stock_report_section(code)
+    if report_content:
+        try:
+            await stock_cmd.send(f"🔍 正在生成 {code} 的 AI 分析卡片...")
+            img_bytes = await StockService.render_stock_card(report_content)
+            await stock_cmd.finish(MessageSegment.image(img_bytes))
+            return
+        except Exception as e:
+            logger.error(f"Failed to render stock card for {code}: {e}")
+            # 渲染失败，继续执行下方的文本回退逻辑
+            pass
+
+    # 回退逻辑：查询 DB 纯数据
     stock_info = StockService.get_stock_info(code)
     if stock_info:
         msg = StockService.format_stock_msg(stock_info)
-        await stock_cmd.finish(msg)
+        extra_hint = "\n(未找到该股的深度研报，仅显示实时行情)" if not report_content else "\n(图片生成失败，转为文本显示)"
+        await stock_cmd.finish(msg + extra_hint)
     else:
         await stock_cmd.finish(f"找不到代码为 {code} 的股票数据呢，请确认代码是否正确（或尝试 /stock review）。")
