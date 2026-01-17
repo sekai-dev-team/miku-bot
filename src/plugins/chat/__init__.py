@@ -19,7 +19,7 @@ from src.common.tool_registry import tool_registry
 from .msg_context import SimulatedGroupMsg
 from .sentence_handler import SentenceBuffer
 from .sys_monitor import SystemMonitor
-from .utils import get_event_info, is_friend
+from .utils import get_event_info, is_friend, parse_dsml_tool_calls
 from .msg_context import SimulatedGroupMsgListener
 # constant
 PLUGIN_CONFIG = get_plugin_config(PluginConfig)
@@ -192,22 +192,47 @@ async def _(event: GroupMessageEvent):
                         LISTENER.listen(group_msg)
                         await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
 
-        if first_msg.tool_calls:
+        # Check for DSML (DeepSeek XML format)
+        dsml_tool_calls = []
+        if not first_msg.tool_calls and first_msg.content:
+            dsml_tool_calls = parse_dsml_tool_calls(first_msg.content)
+
+        if first_msg.tool_calls or dsml_tool_calls:
             # --- Tool Call Branch ---
-            messages.append(first_msg) # 把 AI 的调用意图加进去
+            if dsml_tool_calls:
+                 # 手动构造 assistant 消息存入历史
+                 messages.append({
+                    "role": "assistant",
+                    "content": first_msg.content, 
+                    "tool_calls": dsml_tool_calls
+                 })
+                 actual_tool_calls = dsml_tool_calls
+            else:
+                 messages.append(first_msg) 
+                 actual_tool_calls = first_msg.tool_calls
             
-            for tool_call in first_msg.tool_calls:
+            for tool_call in actual_tool_calls:
                 try:
-                    args = json.loads(tool_call.function.arguments)
+                    # 兼容对象和字典访问
+                    if isinstance(tool_call, dict):
+                        func_name = tool_call["function"]["name"]
+                        args_str = tool_call["function"]["arguments"]
+                        call_id = tool_call["id"]
+                    else:
+                        func_name = tool_call.function.name
+                        args_str = tool_call.function.arguments
+                        call_id = tool_call.id
+
+                    args = json.loads(args_str)
                     # 执行工具
-                    tool_res = await tool_registry.dispatch(tool_call.function.name, args)
+                    tool_res = await tool_registry.dispatch(func_name, args)
                 except Exception as e:
                     tool_res = f"Error executing tool: {e}"
                 
                 # 把结果加进去
                 messages.append({
                     "role": "tool",
-                    "tool_call_id": tool_call.id,
+                    "tool_call_id": call_id,
                     "content": str(tool_res)
                 })
             

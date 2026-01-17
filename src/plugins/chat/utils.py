@@ -25,6 +25,65 @@ def get_event_info(event: OneBotMessageEvent) -> tuple[dict, SimulatedGroupMsg]:
 
     return splited_info, group_msg
 
+def parse_dsml_tool_calls(content: str) -> list[dict]:
+    """
+    解析 DeepSeek-V3/R1 的 <｜DSML｜function_calls> 格式
+    返回格式模拟 OpenAI Tool Call Object:
+    [
+        {
+            "id": "call_random_id",
+            "function": {
+                "name": "tool_name",
+                "arguments": "json_string_of_args"
+            },
+            "type": "function"
+        }
+    ]
+    """
+    import re
+    import uuid
+
+    tool_calls = []
+    
+    # 提取 function_calls 块
+    block_pattern = r"<｜DSML｜function_calls>(.*?)</｜DSML｜function_calls>"
+    block_match = re.search(block_pattern, content, re.DOTALL)
+    
+    if not block_match:
+        return []
+    
+    block_content = block_match.group(1)
+    
+    # 提取 invoke
+    invoke_pattern = r"<｜DSML｜invoke name=\"(.*?)\">(.*?)</｜DSML｜invoke>"
+    invokes = re.finditer(invoke_pattern, block_content, re.DOTALL)
+    
+    for invoke in invokes:
+        tool_name = invoke.group(1)
+        args_content = invoke.group(2)
+        
+        args = {}
+        # 提取 parameter
+        # 注意：这里假设 parameter 格式比较规范，如果有嵌套可能需要更复杂的解析
+        param_pattern = r"<｜DSML｜parameter name=\"(.*?)\"(?:.*?)>(.*?)</｜DSML｜parameter>"
+        params = re.finditer(param_pattern, args_content, re.DOTALL)
+        
+        for param in params:
+            key = param.group(1)
+            value = param.group(2).strip()
+            args[key] = value
+            
+        tool_calls.append({
+            "id": f"call_{uuid.uuid4().hex[:8]}",
+            "function": {
+                "name": tool_name,
+                "arguments": json.dumps(args, ensure_ascii=False)
+            },
+            "type": "function"
+        })
+        
+    return tool_calls
+
 def read_json_from(json_file: str) -> dict:
     with open(json_file, "r", encoding="utf-8") as source:
         return json.load(source)
