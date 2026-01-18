@@ -2,16 +2,62 @@ from pathlib import Path
 import asyncio
 import docker
 import base64
+import json
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 from nonebot.params import CommandArg, ArgPlainText
 from nonebot.log import logger
 from nonebot.typing import T_State
+from nonebot.permission import SUPERUSER
 from src.common.bili_prompts import PROMPTS, PROMPT_ALIASES
 
 # Constants
 CONTAINER_NAME = "sekai-bilinote-local"
 SHARED_DIR = Path("/app/data/local_bilinote")
+CUSTOM_PROMPTS_PATH = Path("src/common/resources/custom_bili_prompts.json")
+
+# Helper Functions
+def get_all_prompts():
+    """Merge default prompts with custom prompts."""
+    prompts = PROMPTS.copy()
+    if CUSTOM_PROMPTS_PATH.exists():
+        try:
+            content = CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8")
+            if content:
+                custom = json.loads(content)
+                prompts.update(custom)
+        except Exception as e:
+            logger.error(f"Failed to load custom prompts: {e}")
+    return prompts
+
+def save_custom_prompt(name: str, content: str):
+    """Save a new custom prompt."""
+    custom = {}
+    if CUSTOM_PROMPTS_PATH.exists():
+        try:
+            file_content = CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8")
+            if file_content:
+                custom = json.loads(file_content)
+        except Exception:
+            pass
+    
+    custom[name] = content
+    CUSTOM_PROMPTS_PATH.write_text(json.dumps(custom, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def delete_custom_prompt(name: str) -> bool:
+    """Delete a custom prompt. Returns True if deleted, False if not found."""
+    if not CUSTOM_PROMPTS_PATH.exists():
+        return False
+        
+    try:
+        custom = json.loads(CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8"))
+        if name in custom:
+            del custom[name]
+            CUSTOM_PROMPTS_PATH.write_text(json.dumps(custom, ensure_ascii=False, indent=2), encoding="utf-8")
+            return True
+    except Exception:
+        pass
+    return False
 
 # Command definition
 bili_note = on_command("笔记", aliases={"bili_note", "summary"}, priority=5, block=True)
@@ -33,17 +79,23 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
     url = parts[0]
     prompt_key = "默认"
     
+    all_prompts = get_all_prompts()
+    
     if len(parts) > 1:
         user_type = parts[1].lower()
         if user_type in PROMPT_ALIASES:
             prompt_key = PROMPT_ALIASES[user_type]
-        elif user_type in PROMPTS:
+        elif user_type in all_prompts:
             prompt_key = user_type
         else:
-            valid_types = list(PROMPTS.keys())
-            await bili_note.finish(f"未知的笔记类型 '{user_type}' 哦。\nMiku 支持的类型有：{', '.join(valid_types)}")
+            valid_types = list(all_prompts.keys())
+            # Show top 10 types if too many
+            display_types = valid_types[:10]
+            if len(valid_types) > 10:
+                display_types.append("...")
+            await bili_note.finish(f"未知的笔记类型 '{user_type}' 哦。\nMiku 支持的类型有：{', '.join(display_types)}")
 
-    custom_prompt = PROMPTS[prompt_key]
+    custom_prompt = all_prompts.get(prompt_key, PROMPTS["默认"])
     
     # Notify user with @
     msg = "收到请求！正在呼叫笔记助手"
@@ -72,10 +124,6 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
             # Construct command as a list for safety
             cmd = ["python3", "main.py", video_url, "--model", "deepseek"]
             
-            # Only append custom prompt if it's explicitly provided (not default, or we want to enforce our default)
-            # Since "默认" is our own defined prompt, we should pass it if we want to ensure consistency,
-            # OR we can skip it to let the backend use its own default.
-            # Let's pass it to ensure the "PROMPTS" file is the single source of truth.
             if prompt:
                  cmd.extend(["--custom_prompt", prompt])
             
@@ -151,6 +199,67 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
         except Exception as e:
             logger.error(f"Failed to upload file {file_path}: {e}")
             await bili_note.send(f"哎呀，文件 {file_path.name} 发送失败了... 可能是网络波动？")
+
+# --- Bilinote Prompt Management ---
+cmd_bili_prompt = on_command("笔记提示词", aliases={"bili_prompt"}, priority=5, block=True)
+
+@cmd_bili_prompt.handle()
+async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()):
+    # Arguments: [list|add|del] [name] [content]
+    argv = args.extract_plain_text().strip().split(maxsplit=2)
+    action = argv[0] if argv else "list"
+    
+    if action in ["list", "列表", "ls"]:
+        all_prompts = get_all_prompts()
+        custom_prompts_keys = []
+        if CUSTOM_PROMPTS_PATH.exists():
+             try:
+                 custom_prompts_keys = list(json.loads(CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8")).keys())
+             except: pass
+
+        msg = "📝 Miku 的笔记提示词列表：\n------------------\n"
+        for key in all_prompts.keys():
+            mark = " (自定义)" if key in custom_prompts_keys else " (系统)"
+            msg += f"- {key}{mark}\n"
+        
+        msg += "\n💡 指令示例：\n/笔记提示词 add 我的模板 请帮我总结...\n/笔记提示词 del 我的模板\n/笔记提示词 view 默认"
+        await cmd_bili_prompt.finish(msg)
+
+    elif action in ["add", "添加", "new"]:
+        if len(argv) < 3:
+            await cmd_bili_prompt.finish("参数不够哦！格式：/笔记提示词 add <名称> <提示词内容>")
+        
+        name = argv[1]
+        content = argv[2]
+        
+        if name in PROMPTS:
+            await cmd_bili_prompt.finish(f"'{name}' 是系统自带的提示词，不能覆盖哦！请换个名字吧。")
+            
+        save_custom_prompt(name, content)
+        await cmd_bili_prompt.finish(f"成功添加自定义提示词 '{name}'！\n以后可以使用 `/笔记 <链接> {name}` 来调用啦。")
+
+    elif action in ["del", "delete", "删除", "rm"]:
+        if len(argv) < 2:
+            await cmd_bili_prompt.finish("请告诉我想要删除哪个提示词？格式：/笔记提示词 del <名称>")
+        
+        name = argv[1]
+        if delete_custom_prompt(name):
+            await cmd_bili_prompt.finish(f"已删除自定义提示词 '{name}'。")
+        else:
+            await cmd_bili_prompt.finish(f"找不到名字叫 '{name}' 的自定义提示词哦（系统自带的无法删除）。")
+            
+    elif action in ["view", "查看", "show", "get"]:
+         if len(argv) < 2:
+            await cmd_bili_prompt.finish("请告诉我想要查看哪个提示词？格式：/笔记提示词 view <名称>")
+         name = argv[1]
+         all_prompts = get_all_prompts()
+         if name in all_prompts:
+             await cmd_bili_prompt.finish(f"🔍 提示词 '{name}' 的内容：\n\n{all_prompts[name]}")
+         else:
+             await cmd_bili_prompt.finish(f"找不到名为 '{name}' 的提示词。")
+
+    else:
+        await cmd_bili_prompt.finish("Miku 没听懂这个指令呢... 请使用 list/add/del/view。")
 
 # --- Bilinote List Feature ---
 bili_doc = on_command("笔记列表", aliases={"bilidoc", "doc_list"}, priority=5, block=True)
