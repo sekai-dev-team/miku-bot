@@ -251,7 +251,6 @@ class StockService:
         """
         # 添加一些自定义 CSS 来美化卡片
         css = """
-        <style>
             body {
                 font-family: "Microsoft YaHei", "Heiti SC", sans-serif;
                 padding: 20px;
@@ -274,7 +273,6 @@ class StockService:
             th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
             th { background-color: #f6f8fa; font-weight: 600; }
             tr:nth-child(2n) { background-color: #f6f8fa; }
-        </style>
         """
         
         # 使用 md_to_pic 直接转换，它会自动处理 markdown 解析
