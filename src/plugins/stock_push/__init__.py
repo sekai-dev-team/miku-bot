@@ -1,5 +1,6 @@
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent, Bot, GroupMessageEvent, PrivateMessageEvent, MessageSegment
+from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 from nonebot.log import logger
 import base64
@@ -90,6 +91,8 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
             img_bytes = await StockService.render_stock_card(report_content)
             await stock_cmd.finish(MessageSegment.image(img_bytes))
             return
+        except FinishedException:
+            raise
         except Exception as e:
             logger.error(f"Failed to render stock card for {code}: {e}")
             # 渲染失败，继续执行下方的文本回退逻辑

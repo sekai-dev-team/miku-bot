@@ -3,6 +3,7 @@ import nonebot
 from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent, GroupRequestEvent, Bot, Message, MessageSegment, FriendRequestEvent
 from nonebot import logger, on_command, on_regex, on_request, get_plugin_config, get_driver, on_message
 from nonebot.matcher import Matcher
+from nonebot.exception import FinishedException
 from nonebot.rule import to_me
 from nonebot.typing import T_State
 from nonebot.permission import SUPERUSER
@@ -93,6 +94,8 @@ async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("a
             global PROMPT_CONTENT
             PROMPT_CONTENT = content
             await matcher.finish("提示词更新成功！Miku 已经记住了新的设定~")
+        except FinishedException:
+            raise
         except Exception as e:
             logger.error(f"Failed to write prompt: {e}")
             await matcher.finish(f"写入失败：{e}")
@@ -137,6 +140,8 @@ async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("a
             global MANUAL_CONTENT
             MANUAL_CONTENT = content
             await matcher.finish("使用手册更新成功！")
+        except FinishedException:
+            raise
         except Exception as e:
             logger.error(f"Failed to write manual: {e}")
             await matcher.finish(f"写入失败：{e}")
@@ -331,6 +336,8 @@ async def _(event: MessageEvent, bot: Bot, args: Message = CommandArg()):  # 支
                          await user_manual.finish("说明书好像弄丢了... (文件读取失败)")
                     img = await md_to_pic(MANUAL_CONTENT)
                     await user_manual.finish(MessageSegment.image(img))
+                except FinishedException:
+                    raise
                 except Exception as e:
                     logger.error(f"Failed to render help manual: {e}")
                     await user_manual.finish("说明书渲染失败了...")
