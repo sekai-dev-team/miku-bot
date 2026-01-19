@@ -27,19 +27,18 @@ ENV MAX_WORKERS=1
 
 COPY --from=requirements_stage /tmp/bot.py /app
 COPY ./docker/_main.py /app
-
-RUN pip install --no-cache-dir gunicorn uvicorn[standard]
 COPY pyproject.toml README.md /app/
-RUN pip install --no-cache-dir .
 
-# Install fonts and graphics libraries
+# Combine pip installs
+RUN pip install --no-cache-dir gunicorn uvicorn[standard] && \
+    pip install --no-cache-dir .
+
+# Combine apt install, playwright install, and cleanup to reduce image size
 RUN apt-get update && \
-    apt-get install -y fonts-noto-cjk libegl1 libgl1 && \
+    apt-get install -y --no-install-recommends fonts-noto-cjk libegl1 libgl1 && \
+    playwright install chromium && \
+    playwright install-deps chromium && \
     rm -rf /var/lib/apt/lists/*
-
-# Install Playwright dependencies and browser
-RUN playwright install chromium
-RUN playwright install-deps chromium
 
 COPY . /app/
 
