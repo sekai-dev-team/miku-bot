@@ -1,8 +1,6 @@
 # Miku Bot 🎵
 
-Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多功能群聊机器人，集成了 AI 对话、新闻聚合、视频笔记总结、群聊黑历史记录以及股市信息查询等功能。
-
-本项目旨在打造一个具有“人格”的智能助理，通过 ReAct (Reasoning + Acting) 模式，让 Miku 能够理解自然语言指令并自主调用工具完成任务。
+Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多功能群聊机器人，集成了 AI 对话、新闻聚合、视频笔记总结、群聊黑历史记录以及股市信息查询等功能。通过 ReAct (Reasoning + Acting) 模式，让 Miku 能够理解自然语言指令并自主调用工具完成任务。
 
 ---
 
@@ -40,16 +38,16 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
 
 *   **入口**: `src/plugins/news`
 *   **数据流**:
-    1.  **数据采集**: (外部爬虫/定时任务) 抓取新闻数据存入 `src/common/resources/news/*.db` 及 HTML 模板。
+    1.  **数据采集**: 数据源来自[TrendRadar](https://github.com/sansan0/TrendRadar)，**miku-bot仅负责读取数据库文件**
     2.  **指令触发**: 用户发送 `/news` 或询问 AI "今天有什么新闻"。
-    3.  **PDF 生成**: `service.py` 调用 Playwright (Headless Browser) 渲染当日的 HTML 文件为 PDF。
+    3.  **PDF 生成**: `service.py` 调用 Playwright (Headless Browser) 渲染当日的数据文件为 PDF。
     4.  **AI 摘要**:
-        *   `service.py` 解析 HTML 提取新闻标题和正文。
+        *   `service.py` 从数据文件中提取新闻标题和正文。
         *   构建 Prompt 让 AI 进行总结、划重点并发表“感想”。
     5.  **交付**: PDF 文件上传至群聊，摘要以文本形式发送。
 
 ### 3. B站视频笔记 (Bili Note)
-调用本地 Docker 容器分析 Bilibili 视频内容。
+**这是一个私有仓库，暂不公开**
 
 *   **入口**: `src/plugins/bili_note`
 *   **工作流**:
@@ -60,7 +58,7 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
     3.  **内容处理**:
         *   容器内的服务下载视频音频/字幕。
         *   调用 ASR (语音转文字) 和 LLM 进行总结。
-        *   结果生成为 Markdown 文件，写入共享 Volume (`src/common/resources/local_bilinote`).
+        *   结果生成为 Markdown 文件，写入命名卷
     4.  **结果返回**: 插件检测到新文件生成后，将其转换为 PDF 或直接发送 Markdown 文件给用户。
 
 ### 4. 群聊黑历史 (History Book)
@@ -81,13 +79,13 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
 
 *   **入口**: `src/plugins/stock_push`
 *   **工作流**:
-    1.  **数据源**: 读取 `src/common/resources/stock_analysis.db` (由外部量化脚本每日更新)。
+    1.  **数据源**: 数据源来自[Daily Stock Analysis](https://github.com/ZhuLinsen/daily_stock_analysis)，**miku-bot仅负责读取数据库文件**
     2.  **服务层**: `service.py` 封装 SQL 查询（获取最新日期、个股行情、涨幅榜）。
     3.  **交互层**:
         *   **指令**: `/stock` 直接调用服务层返回格式化文本。
         *   **复盘/研报**:
-            *   `/stock review`: 读取 `reports/market_review_*.md` 并直接发送文本。
-            *   `/stock report`: 读取 `reports/report_*.md` 并以文件形式上传。
+            *   `/stock review`: 读取 `当日最新大盘情况` 并直接发送文本。
+            *   `/stock report`: 读取 `自选股情况以及分析、建议` 并以文件形式上传。
         *   **AI 工具**: 注册 `get_stock_info` 工具。当用户问“宁德时代股价”时，AI 自动调用此函数获取 JSON 数据，再转换成人话回答。
 
 ---
@@ -112,3 +110,20 @@ A:\project\miku-bot\
 ├── bot.py                  # 启动入口
 └── pyproject.toml          # 依赖管理
 ```
+
+## 📦 数据来源与外部集成 (Data Sources)
+
+为了实现完整功能，部分插件依赖外部数据源或独立容器。在 `docker-compose.yml` 中可通过挂载数据卷进行集成：
+
+| 插件              | 数据来源 / 依赖项目                                          | 说明                                       |
+| :---------------- | :----------------------------------------------------------- | :----------------------------------------- |
+| **Stock**         | [Daily Stock Analysis](https://github.com/ZhuLinsen/daily_stock_analysis) | 提供港沪深股每日行情数据库及 AI 复盘报告。 |
+| **News**          | [TrendRadar](https://github.com/sansan0/TrendRadar)          | 提供每日热点新闻数据、HTML 汇总文件。      |
+| ~~**Bili Note**~~ | ~~[sekai-bilinote-local]()~~                                 | ~~负责 B 站视频转文字与总结。~~            |
+
+**开箱即用说明**：
+
+1.  **配置文件**: 复制 `.env.example` 为 `.env` 并填写 API Key 等信息。
+2.  **数据挂载**: 默认情况下，上述外部卷已被注释。若需启用，请先确保已部署对应项目，并在 `docker-compose.yml` 中取消相应卷的注释。
+3.  **启动**: 执行 `docker-compose up -d` 即可。
+
