@@ -95,7 +95,7 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
                 display_types.append("...")
             await bili_note.finish(f"未知的笔记类型 '{user_type}' 哦。\nMiku 支持的类型有：{', '.join(display_types)}")
 
-    custom_prompt = all_prompts.get(prompt_key, PROMPTS["默认"])
+    custom_prompt = all_prompts.get(prompt_key, all_prompts.get("默认", "请帮我总结这个视频..."))
     
     # Notify user with @
     msg = "收到请求！正在呼叫笔记助手"
@@ -125,7 +125,7 @@ async def handle_note(bot: Bot, event: Event, args: Message = CommandArg()):
             cmd = ["python3", "main.py", video_url, "--model", "deepseek"]
             
             if prompt:
-                 cmd.extend(["--custom_prompt", prompt])
+                 cmd.extend(["--style", "custom", "--custom_prompt", prompt])
             
             # Return tuple (exit_code, output)
             return container.exec_run(cmd, stream=False)
@@ -232,8 +232,9 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
         name = argv[1]
         content = argv[2]
         
-        if name in PROMPTS:
-            await cmd_bili_prompt.finish(f"'{name}' 是系统自带的提示词，不能覆盖哦！请换个名字吧。")
+        # Remove restriction on overriding system prompts
+        # if name in PROMPTS:
+        #    await cmd_bili_prompt.finish(f"'{name}' 是系统自带的提示词，不能覆盖哦！请换个名字吧。")
             
         save_custom_prompt(name, content)
         await cmd_bili_prompt.finish(f"成功添加自定义提示词 '{name}'！\n以后可以使用 `/笔记 <链接> {name}` 来调用啦。")
@@ -258,8 +259,32 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
          else:
              await cmd_bili_prompt.finish(f"找不到名为 '{name}' 的提示词。")
 
+    elif action in ["help", "帮助", "-h", "--help"]:
+        help_msg = (
+            "📖 **笔记提示词管理指南**\n"
+            "Miku 的笔记提示词现在完全由 JSON 配置文件管理，您可以自由添加、修改或覆盖系统默认的提示词。\n\n"
+            "**可用指令：**\n"
+            "1. **查看列表**\n"
+            "   `/笔记提示词 list`\n"
+            "   查看当前所有可用的提示词类型。\n\n"
+            "2. **查看内容**\n"
+            "   `/笔记提示词 view <名称>`\n"
+            "   查看某个提示词的具体 Prompt 内容。\n"
+            "   例：`/笔记提示词 view 搞笑`\n\n"
+            "3. **添加/修改**\n"
+            "   `/笔记提示词 add <名称> <内容>`\n"
+            "   添加新的提示词，或者**覆盖**同名的现有提示词（包括默认的）。\n"
+            "   例：`/笔记提示词 add 默认 请帮我用可爱语气总结...`\n\n"
+            "4. **删除**\n"
+            "   `/笔记提示词 del <名称>`\n"
+            "   删除自定义的提示词。如果删除了覆盖系统默认的提示词，将恢复为系统默认版本（如果有）。\n"
+            "   例：`/笔记提示词 del 默认` (恢复初始默认提示词)\n\n"
+            "💡 **提示**：所有修改都会保存在 `custom_bili_prompts.json` 中，重启后依然有效哦！"
+        )
+        await cmd_bili_prompt.finish(help_msg)
+
     else:
-        await cmd_bili_prompt.finish("Miku 没听懂这个指令呢... 请使用 list/add/del/view。")
+        await cmd_bili_prompt.finish("Miku 没听懂这个指令呢... 请使用 /笔记提示词 help 查看帮助。")
 
 # --- Bilinote List Feature ---
 bili_doc = on_command("笔记列表", aliases={"bilidoc", "doc_list"}, priority=5, block=True)
