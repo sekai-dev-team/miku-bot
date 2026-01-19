@@ -247,38 +247,63 @@ class StockService:
     async def render_stock_card(markdown_content: str) -> bytes:
         """
         将 Markdown 内容渲染为图片。
-        使用 nonebot_plugin_htmlrender
+        使用 nonebot_plugin_htmlrender 的 html_to_pic
         """
-        # 添加一些自定义 CSS 来美化卡片
+        import markdown
+        from nonebot_plugin_htmlrender import html_to_pic
+
+        # 1. Convert Markdown to HTML
+        html_body = markdown.markdown(markdown_content, extensions=['tables', 'fenced_code'])
+
+        # 2. Construct full HTML with custom CSS
         css = """
             body {
                 font-family: "Microsoft YaHei", "Heiti SC", sans-serif;
                 padding: 20px;
                 background-color: #f0f2f5;
+                margin: 0;
             }
-            .markdown-body {
+            .card {
                 box-sizing: border-box;
-                min-width: 200px;
-                max-width: 600px;
-                margin: 0 auto;
+                width: 600px;
                 padding: 30px;
                 background-color: #ffffff;
                 border-radius: 12px;
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                margin: 0 auto;
             }
-            h2 { border-bottom: 2px solid #eaecef; padding-bottom: .3em; color: #24292e; }
-            h3 { color: #24292e; margin-top: 24px; }
+            h2 { 
+                border-bottom: 2px solid #eaecef; 
+                padding-bottom: .3em; 
+                color: #24292e; 
+                font-size: 1.5em;
+                margin-top: 0;
+            }
+            h3 { color: #24292e; margin-top: 24px; font-size: 1.25em; }
+            p { line-height: 1.6; color: #333; }
             blockquote { color: #6a737d; border-left: .25em solid #dfe2e5; padding: 0 1em; margin: 0; }
             table { border-collapse: collapse; width: 100%; margin: 15px 0; }
             th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
             th { background-color: #f6f8fa; font-weight: 600; }
             tr:nth-child(2n) { background-color: #f6f8fa; }
+            code { background-color: rgba(27,31,35,.05); border-radius: 3px; font-size: 85%; margin: 0; padding: .2em .4em; }
+        """
+
+        html_content = f"""
+        <html>
+        <head>
+            <style>{css}</style>
+        </head>
+        <body>
+            <div class="card">
+                {html_body}
+            </div>
+        </body>
+        </html>
         """
         
-        # 使用 md_to_pic 直接转换，它会自动处理 markdown 解析
-        # width 设置为 600 左右比较适合手机查看
-        return await md_to_pic(
-            md=markdown_content,
-            css=css,
-            width=650
+        # 3. Render directly from HTML string
+        return await html_to_pic(
+            html=html_content,
+            viewport={"width": 650, "height": 100} # Height will auto-expand
         )
