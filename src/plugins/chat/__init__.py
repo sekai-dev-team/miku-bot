@@ -6,7 +6,7 @@ from nonebot.matcher import Matcher
 from nonebot.rule import to_me
 from nonebot.typing import T_State
 from nonebot.permission import SUPERUSER
-from nonebot.params import ArgPlainText
+from nonebot.params import ArgPlainText, CommandArg
 from nonebot_plugin_htmlrender import md_to_pic
 # plugin
 import asyncio, re, json
@@ -21,6 +21,7 @@ from .sentence_handler import SentenceBuffer
 from .sys_monitor import SystemMonitor
 from .utils import get_event_info, is_friend, parse_dsml_tool_calls
 from .msg_context import SimulatedGroupMsgListener
+from .help_menu import get_main_menu_text, get_plugin_help_text
 # constant
 PLUGIN_CONFIG = get_plugin_config(PluginConfig)
 LISTENER = SimulatedGroupMsgListener()
@@ -310,19 +311,31 @@ async def _(bot: Bot, event: MessageEvent):  # 支持私聊
 # * 5. 使用指南
 user_manual = on_command("help")
 @user_manual.handle()
-async def _(event: MessageEvent, bot: Bot):  # 支持私聊
-    try:
-        # 将预加载的文本渲染为 Markdown 图片
-        if MANUAL_CONTENT.startswith("Error"):
-             await user_manual.finish("说明书好像弄丢了... (文件读取失败)")
-             
-        img = await md_to_pic(MANUAL_CONTENT)
-        await user_manual.finish(MessageSegment.image(img))
-    except nonebot.exception.FinishedException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to render help manual: {e}")
-        await user_manual.finish("说明书渲染失败了...请检查日志。")
+async def _(event: MessageEvent, bot: Bot, args: Message = CommandArg()):  # 支持私聊
+    arg_text = args.extract_plain_text().strip()
+    
+    if not arg_text:
+        # Show main menu
+        await user_manual.finish(get_main_menu_text())
+    else:
+        # Show specific help
+        detail = get_plugin_help_text(arg_text)
+        if detail:
+            # Check if user wants "all" or specific
+            await user_manual.finish(detail)
+        else:
+             # Fallback: if arg is "all" or "manual", maybe show the full image?
+             if arg_text.lower() in ["all", "full", "manual"]:
+                try:
+                    if MANUAL_CONTENT.startswith("Error"):
+                         await user_manual.finish("说明书好像弄丢了... (文件读取失败)")
+                    img = await md_to_pic(MANUAL_CONTENT)
+                    await user_manual.finish(MessageSegment.image(img))
+                except Exception as e:
+                    logger.error(f"Failed to render help manual: {e}")
+                    await user_manual.finish("说明书渲染失败了...")
+
+             await user_manual.finish(f"未找到关于 '{arg_text}' 的功能说明哦。\n请发送 `/help` 查看列表，或发送 `/help all` 查看完整长图。")
 
 # todo * 9. 服务测试
     
