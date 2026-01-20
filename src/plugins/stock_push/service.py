@@ -88,7 +88,7 @@ class StockService:
     @staticmethod
     @tool_registry.register(
         name="get_stock_info",
-        description="获取特定股票代码或名称的最新行情数据（收盘价、涨跌幅等）。",
+        description="获取特定股票代码或名称的最新行情数据，包含价格、涨跌幅以及最新的AI研报分析摘要。",
         parameters={
             "type": "object",
             "properties": {
@@ -147,6 +147,17 @@ class StockService:
                     name_map = StockService.get_stock_name_map()
                     name = name_map.get(code, code)
 
+                    # 获取研报分析 (最小修改：复用提取逻辑 + 转纯文本)
+                    report_analysis = "暂无研报分析。"
+                    try:
+                        html_section = StockService.extract_stock_report_section(code)
+                        if html_section:
+                            from bs4 import BeautifulSoup
+                            # 简单清洗 HTML 标签，只保留文本，方便 LLM 阅读
+                            report_analysis = BeautifulSoup(html_section, "html.parser").get_text(separator="\n", strip=True)
+                    except Exception as e:
+                        print(f"Error extracting report for {code}: {e}")
+
                     return {
                         "code": row[0],
                         "name": name,
@@ -158,6 +169,7 @@ class StockService:
                         "volume": row[6],
                         "pct_chg": row[7],
                         "amount": row[8],
+                        "report_analysis": report_analysis, # 新增字段
                     }
                 return None
         except Exception as e:
