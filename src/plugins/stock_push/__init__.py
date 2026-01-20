@@ -45,7 +45,8 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
         for item in watchlist:
             emoji = "🔴" if item['pct_chg'] > 0 else "🟢" if item['pct_chg'] < 0 else "⚪"
             # 兼容A股红涨绿跌习惯，或者根据Emoji: 🔴涨 🟢跌
-            msg += f"{emoji} {item['code']}: {item['close']} ({item['pct_chg']}%) \n"
+            name_part = f"{item['name']} " if 'name' in item and item['name'] != item['code'] else ""
+            msg += f"{emoji} {name_part}{item['code']}: {item['close']} ({item['pct_chg']}%) \n"
             
         msg += "\n💡 发送 /stock <代码> 可查看该股的 AI 深度研报卡片。"
         await stock_cmd.finish(msg)
@@ -88,7 +89,8 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
     if report_content:
         try:
             await stock_cmd.send(f"🔍 正在生成 {code} 的 AI 分析卡片...")
-            img_bytes = await StockService.render_stock_card(report_content)
+            # extract_stock_report_section returns HTML now, so we skip MD conversion
+            img_bytes = await StockService.render_stock_card(report_content, is_html=True)
             await stock_cmd.finish(MessageSegment.image(img_bytes))
             return
         except FinishedException:
