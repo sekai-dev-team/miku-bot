@@ -89,7 +89,8 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
     if report_content:
         try:
             await stock_cmd.send(f"🔍 正在生成 {code} 的 AI 分析卡片...")
-            img_bytes = await StockService.render_stock_card(report_content)
+            # extract_stock_report_section returns HTML now, so we skip MD conversion
+            img_bytes = await StockService.render_stock_card(report_content, is_html=True)
             await stock_cmd.finish(MessageSegment.image(img_bytes))
             return
         except FinishedException:

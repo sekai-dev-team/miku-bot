@@ -256,56 +256,66 @@ class StockService:
     def extract_stock_report_section(code: str) -> Optional[str]:
         """
         从最新的 report_*.md 中提取特定股票的段落。
-        假设格式为: ## 🟢 股票名 (Code)
+        返回该段落的 HTML 文本。
         """
+        import markdown
+        from bs4 import BeautifulSoup
+
         file_path = StockService.get_latest_report_file("report")
         if not file_path:
             return None
 
         try:
             content = file_path.read_text(encoding="utf-8")
-            # 匹配模式：
-            # ## [emoji] 股票名 (code) ... 到下一个 ## 或 ---
-            # 这里的 code 是传入的 code 参数
-            # 考虑到可能有正则特殊字符，使用 re.escape 并不是完全适用，因为我们要匹配 markdown 结构
+            
+            # Convert full MD to HTML first to parse structure reliably
+            md = markdown.Markdown(extensions=["tables", "fenced_code"])
+            html_content = md.convert(content)
+            
+            soup = BeautifulSoup(html_content, "html.parser")
+            
+            # Find the H2 header containing the code
+            # We iterate to find the one containing "(code)"
+            target_header = None
+            for h2 in soup.find_all("h2"):
+                if f"({code})" in h2.get_text():
+                    target_header = h2
+                    break
+            
+            if not target_header:
+                return None
+            
+            # Collect content: Header + all siblings until next H2
+            section_parts = [str(target_header)]
+            for sibling in target_header.next_siblings:
+                if sibling.name == "h2":
+                    break
+                # sibling can be a Tag or NavigableString
+                section_parts.append(str(sibling))
+                
+            return "".join(section_parts)
 
-            # 搜索标题行，类似 "## 🟢 XD工业富 (601138)"
-            # 我们寻找包含 `(code)` 的二级标题
-            pattern = re.compile(
-                rf"^##\s+.*?\({code}\).*?$(.*?)(?=^##|\Z)", re.MULTILINE | re.DOTALL
-            )
-
-            match = pattern.search(content)
-            if match:
-                # 提取出的内容包含标题本身（因为group(0)会包含，但这里使用了group(1)提取content）
-                # 等等，上面的正则 group(1) 是 (.*?)，也就是标题后的内容。
-                # 我们希望包含标题，以便知道是哪只股票
-
-                # 重新调整正则：捕获整个块
-                full_pattern = re.compile(
-                    rf"(^##\s+.*?\({code}\).*?)(?=^##|---|\Z)", re.MULTILINE | re.DOTALL
-                )
-                full_match = full_pattern.search(content)
-                if full_match:
-                    return full_match.group(1).strip()
-            return None
         except Exception as e:
             print(f"Error extracting stock report: {e}")
             return None
 
     @staticmethod
-    async def render_stock_card(markdown_content: str) -> bytes:
+    async def render_stock_card(content: str, is_html: bool = False) -> bytes:
         """
-        将 Markdown 内容渲染为图片。
-        使用 nonebot_plugin_htmlrender 的 html_to_pic
+        将 Markdown 或 HTML 内容渲染为图片。
+        :param content: Markdown 文本 或 HTML 片段
+        :param is_html: 如果为 True，则跳过 Markdown 转换直接渲染
         """
         import markdown
         from nonebot_plugin_htmlrender import html_to_pic
 
-        # 1. Convert Markdown to HTML
-        html_body = markdown.markdown(
-            markdown_content, extensions=["tables", "fenced_code"]
-        )
+        # 1. Prepare HTML body
+        if is_html:
+            html_body = content
+        else:
+            html_body = markdown.markdown(
+                content, extensions=["tables", "fenced_code"]
+            )
 
         # 2. Construct full HTML with custom CSS
         css = """
