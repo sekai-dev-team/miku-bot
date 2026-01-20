@@ -88,20 +88,44 @@ class StockService:
     @staticmethod
     @tool_registry.register(
         name="get_stock_info",
-        description="获取特定股票代码的最新行情数据（收盘价、涨跌幅等）。",
+        description="获取特定股票代码或名称的最新行情数据（收盘价、涨跌幅等）。",
         parameters={
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "股票代码（6位数字，如 '300750'）",
+                    "description": "股票代码（如 '300750'）或股票名称（如 '宁德时代'）",
                 }
             },
             "required": ["code"],
         },
     )
     def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
-        """Get the latest information for a specific stock code."""
+        """Get the latest information for a specific stock code or name."""
+        # 如果输入不是纯数字，尝试从名称映射中查找代码
+        if not code.isdigit():
+            name_map = StockService.get_stock_name_map()
+            found_code = None
+            
+            # 1. 精确匹配
+            for c, n in name_map.items():
+                if n == code:
+                    found_code = c
+                    break
+            
+            # 2. 模糊匹配 (如果精确匹配失败)
+            if not found_code:
+                for c, n in name_map.items():
+                    if code in n:
+                        found_code = c
+                        break
+            
+            if found_code:
+                code = found_code
+            else:
+                print(f"Could not resolve stock name '{code}' to a code.")
+                # 如果没找到，依然继续执行，数据库查询会返回空，这是符合预期的
+
         try:
             with StockService._get_connection() as conn:
                 cursor = conn.cursor()
