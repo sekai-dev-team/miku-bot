@@ -49,6 +49,9 @@ class StockService:
     @staticmethod
     def get_stock_name_map() -> Dict[str, str]:
         """从最新的 report 文件中提取代码到名称的映射"""
+        import markdown
+        from bs4 import BeautifulSoup
+
         file_path = StockService.get_latest_report_file("report")
         if not file_path:
             return {}
@@ -56,11 +59,30 @@ class StockService:
         name_map = {}
         try:
             content = file_path.read_text(encoding="utf-8")
-            # 匹配格式: ## <Emoji> <Name> (<code>)
-            # 例如: ## ⚪ 宁德时代 (300750)
-            matches = re.findall(r"##\s+\S+\s+(.+?)\s+\((\d{6})\)", content)
-            for name, code in matches:
-                name_map[code] = name.strip()
+            # 使用 Markdown 解析结构，比纯正则匹配全文更健壮
+            md = markdown.Markdown(extensions=["tables", "fenced_code"])
+            html_content = md.convert(content)
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            for h2 in soup.find_all("h2"):
+                text = h2.get_text().strip()
+                # 期望格式: "Emoji Name (Code)"，例如 "⚪ 宁德时代 (300750)"
+                # 检查是否以 (6位数字) 结尾
+                if len(text) > 8 and text.endswith(")"):
+                    # 提取倒数第7位到倒数第1位作为代码
+                    potential_code = text[-7:-1]
+                    # 确保提取的是数字且前面是左括号
+                    if potential_code.isdigit() and text[-8] == "(":
+                        code = potential_code
+                        # 获取括号前的部分，例如 "⚪ 宁德时代"
+                        name_part = text[:-8].strip()
+                        # 去除 Emoji (假设 Emoji 与名字间有空格)
+                        # Split maxsplit=1: ["⚪", "宁德时代"] -> 取最后一个作为名字
+                        parts = name_part.split(maxsplit=1)
+                        name = parts[-1] if len(parts) > 0 else name_part
+
+                        name_map[code] = name
+
         except Exception as e:
             print(f"Error parsing stock names from report: {e}")
 
