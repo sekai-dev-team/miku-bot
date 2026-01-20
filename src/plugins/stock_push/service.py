@@ -66,22 +66,19 @@ class StockService:
 
             for h2 in soup.find_all("h2"):
                 text = h2.get_text().strip()
-                # 期望格式: "Emoji Name (Code)"，例如 "⚪ 宁德时代 (300750)"
-                # 检查是否以 (6位数字) 结尾
-                if len(text) > 8 and text.endswith(")"):
-                    # 提取倒数第7位到倒数第1位作为代码
-                    potential_code = text[-7:-1]
-                    # 确保提取的是数字且前面是左括号
-                    if potential_code.isdigit() and text[-8] == "(":
-                        code = potential_code
-                        # 获取括号前的部分，例如 "⚪ 宁德时代"
-                        name_part = text[:-8].strip()
-                        # 去除 Emoji (假设 Emoji 与名字间有空格)
-                        # Split maxsplit=1: ["⚪", "宁德时代"] -> 取最后一个作为名字
-                        parts = name_part.split(maxsplit=1)
-                        name = parts[-1] if len(parts) > 0 else name_part
+                # 使用正则匹配末尾的 "(数字)" 结构
+                # 格式: "Emoji Name (Code)" -> Group 1: "Emoji Name", Group 2: "Code"
+                match = re.search(r"^(.*?)\s*\((\d+)\)$", text)
+                if match:
+                    name_part = match.group(1).strip()
+                    code = match.group(2)
+                    
+                    # 去除 Emoji (假设 Emoji 与名字间有空格)
+                    # "⚪ 宁德时代" -> parts=["⚪", "宁德时代"] -> 取最后一个作为名字
+                    parts = name_part.split(maxsplit=1)
+                    name = parts[-1] if parts else name_part
 
-                        name_map[code] = name
+                    name_map[code] = name
 
         except Exception as e:
             print(f"Error parsing stock names from report: {e}")
@@ -91,20 +88,44 @@ class StockService:
     @staticmethod
     @tool_registry.register(
         name="get_stock_info",
-        description="获取特定股票代码的最新行情数据（收盘价、涨跌幅等）。",
+        description="获取特定股票代码或名称的最新行情数据，包含价格、涨跌幅以及最新的AI研报分析摘要。",
         parameters={
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "股票代码（6位数字，如 '300750'）",
+                    "description": "股票代码（如 '300750'）或股票名称（如 '宁德时代'）",
                 }
             },
             "required": ["code"],
         },
     )
     def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
-        """Get the latest information for a specific stock code."""
+        """Get the latest information for a specific stock code or name."""
+        # 如果输入不是纯数字，尝试从名称映射中查找代码
+        if not code.isdigit():
+            name_map = StockService.get_stock_name_map()
+            found_code = None
+            
+            # 1. 精确匹配
+            for c, n in name_map.items():
+                if n == code:
+                    found_code = c
+                    break
+            
+            # 2. 模糊匹配 (如果精确匹配失败)
+            if not found_code:
+                for c, n in name_map.items():
+                    if code in n:
+                        found_code = c
+                        break
+            
+            if found_code:
+                code = found_code
+            else:
+                print(f"Could not resolve stock name '{code}' to a code.")
+                # 如果没找到，依然继续执行，数据库查询会返回空，这是符合预期的
+
         try:
             with StockService._get_connection() as conn:
                 cursor = conn.cursor()
@@ -126,6 +147,17 @@ class StockService:
                     name_map = StockService.get_stock_name_map()
                     name = name_map.get(code, code)
 
+                    # 获取研报分析 (最小修改：复用提取逻辑 + 转纯文本)
+                    report_analysis = "暂无研报分析。"
+                    try:
+                        html_section = StockService.extract_stock_report_section(code)
+                        if html_section:
+                            from bs4 import BeautifulSoup
+                            # 简单清洗 HTML 标签，只保留文本，方便 LLM 阅读
+                            report_analysis = BeautifulSoup(html_section, "html.parser").get_text(separator="\n", strip=True)
+                    except Exception as e:
+                        print(f"Error extracting report for {code}: {e}")
+
                     return {
                         "code": row[0],
                         "name": name,
@@ -137,6 +169,7 @@ class StockService:
                         "volume": row[6],
                         "pct_chg": row[7],
                         "amount": row[8],
+                        "report_analysis": report_analysis, # 新增字段
                     }
                 return None
         except Exception as e:
@@ -335,8 +368,9 @@ class StockService:
         if is_html:
             html_body = content
         else:
+            # Enable nl2br to preserve line breaks, and sane_lists to handle lists without preceding empty lines
             html_body = markdown.markdown(
-                content, extensions=["tables", "fenced_code"]
+                content, extensions=["tables", "fenced_code", "nl2br", "sane_lists"]
             )
 
         # 2. Construct full HTML with custom CSS
