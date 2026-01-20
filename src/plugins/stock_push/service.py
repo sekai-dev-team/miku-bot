@@ -21,15 +21,16 @@ REPORTS_PATH = STOCK_ROOT / "reports"
 
 from src.common.tool_registry import tool_registry
 
+
 class StockService:
     @staticmethod
     def _get_connection():
         if not DB_PATH.exists():
-             # 尝试寻找本地开发路径作为最后手段
-             dev_path = Path("src/common/resources/stock_analysis.db")
-             if dev_path.exists():
-                 return sqlite3.connect(dev_path)
-             raise FileNotFoundError(f"Database not found at {DB_PATH}")
+            # 尝试寻找本地开发路径作为最后手段
+            dev_path = Path("src/common/resources/stock_analysis.db")
+            if dev_path.exists():
+                return sqlite3.connect(dev_path)
+            raise FileNotFoundError(f"Database not found at {DB_PATH}")
         return sqlite3.connect(DB_PATH)
 
     @staticmethod
@@ -46,6 +47,26 @@ class StockService:
             return None
 
     @staticmethod
+    def get_stock_name_map() -> Dict[str, str]:
+        """从最新的 report 文件中提取代码到名称的映射"""
+        file_path = StockService.get_latest_report_file("report")
+        if not file_path:
+            return {}
+
+        name_map = {}
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            # 匹配格式: ## <Emoji> <Name> (<code>)
+            # 例如: ## ⚪ 宁德时代 (300750)
+            matches = re.findall(r"##\s+\S+\s+(.+?)\s+\((\d{6})\)", content)
+            for name, code in matches:
+                name_map[code] = name.strip()
+        except Exception as e:
+            print(f"Error parsing stock names from report: {e}")
+
+        return name_map
+
+    @staticmethod
     @tool_registry.register(
         name="get_stock_info",
         description="获取特定股票代码的最新行情数据（收盘价、涨跌幅等）。",
@@ -57,8 +78,8 @@ class StockService:
                     "description": "股票代码（6位数字，如 '300750'）",
                 }
             },
-            "required": ["code"]
-        }
+            "required": ["code"],
+        },
     )
     def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
         """Get the latest information for a specific stock code."""
@@ -66,18 +87,26 @@ class StockService:
             with StockService._get_connection() as conn:
                 cursor = conn.cursor()
                 # Get the latest record for this code
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT code, date, open, high, low, close, volume, pct_chg, amount
                     FROM stock_daily 
                     WHERE code = ? 
                     ORDER BY date DESC 
                     LIMIT 1
-                """, (code,))
-                
+                """,
+                    (code,),
+                )
+
                 row = cursor.fetchone()
                 if row:
+                    # 尝试获取名称
+                    name_map = StockService.get_stock_name_map()
+                    name = name_map.get(code, code)
+
                     return {
                         "code": row[0],
+                        "name": name,
                         "date": row[1],
                         "open": row[2],
                         "high": row[3],
@@ -85,7 +114,7 @@ class StockService:
                         "close": row[5],
                         "volume": row[6],
                         "pct_chg": row[7],
-                        "amount": row[8]
+                        "amount": row[8],
                     }
                 return None
         except Exception as e:
@@ -98,25 +127,35 @@ class StockService:
         latest_date = StockService.get_latest_date()
         if not latest_date:
             return []
-            
+
         try:
             with StockService._get_connection() as conn:
                 cursor = conn.cursor()
                 # 获取当日所有股票及其涨跌幅
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT code, close, pct_chg 
                     FROM stock_daily 
                     WHERE date = ? 
                     ORDER BY pct_chg DESC 
-                """, (latest_date,))
-                
+                """,
+                    (latest_date,),
+                )
+
+                # 获取名称映射
+                name_map = StockService.get_stock_name_map()
+
                 results = []
                 for row in cursor.fetchall():
-                    results.append({
-                        "code": row[0],
-                        "close": row[1],
-                        "pct_chg": row[2]
-                    })
+                    code = row[0]
+                    results.append(
+                        {
+                            "code": code,
+                            "name": name_map.get(code, code),
+                            "close": row[1],
+                            "pct_chg": row[2],
+                        }
+                    )
                 return results
         except Exception as e:
             print(f"Error getting watchlist: {e}")
@@ -134,8 +173,8 @@ class StockService:
                     "description": "返回的涨幅榜股票数量，默认为 5。",
                 }
             },
-            "required": []
-        }
+            "required": [],
+        },
     )
     def get_top_gainers(limit: int = 5) -> List[Dict[str, Any]]:
         """Get top gainers for the latest available date."""
@@ -148,14 +187,25 @@ class StockService:
         """Format stock data into a readable message."""
         if not data:
             return "未找到该股票数据。"
-            
-        emoji = "📈" if data['pct_chg'] > 0 else "📉" if data['pct_chg'] < 0 else "➖"
-        
+
+        emoji = "📈" if data["pct_chg"] > 0 else "📉" if data["pct_chg"] < 0 else "➖"
+
         # Format amount (e.g. 100000 -> 10万)
-        amount_str = f"{data['amount']/100000000:.2f}亿" if data['amount'] > 100000000 else f"{data['amount']/10000:.2f}万"
-        
+        amount_str = (
+            f"{data['amount']/100000000:.2f}亿"
+            if data["amount"] > 100000000
+            else f"{data['amount']/10000:.2f}万"
+        )
+
+        # 获取名称（如果有）
+        name_str = (
+            f" {data['name']}"
+            if "name" in data and data["name"] != data["code"]
+            else ""
+        )
+
         msg = (
-            f"{emoji} 股票代码: {data['code']}\n"
+            f"{emoji} {name_str} ({data['code']})\n"
             f"📅 日期: {data['date']}\n"
             f"------------------\n"
             f"💰 收盘: {data['close']} ({data['pct_chg']}%)\n"
@@ -175,12 +225,12 @@ class StockService:
         """
         if not REPORTS_PATH.exists():
             return None
-        
+
         # 查找所有匹配前缀的 .md 文件
         files = list(REPORTS_PATH.glob(f"{prefix}_*.md"))
         if not files:
             return None
-            
+
         # 按文件名（通常包含日期）倒序排列
         files.sort(key=lambda x: x.name, reverse=True)
         return files[0]
@@ -189,18 +239,14 @@ class StockService:
     @tool_registry.register(
         name="get_market_review_content",
         description="获取最新的大盘复盘报告（Market Review）的内容文本。",
-        parameters={
-             "type": "object",
-             "properties": {},
-             "required": []
-        }
+        parameters={"type": "object", "properties": {}, "required": []},
     )
     def get_market_review_content() -> str:
         """读取最新的 market_review 文本"""
         file_path = StockService.get_latest_report_file("market_review")
         if not file_path:
             return "暂时没有找到最新的大盘复盘报告哦。"
-        
+
         try:
             return file_path.read_text(encoding="utf-8")
         except Exception as e:
@@ -215,26 +261,30 @@ class StockService:
         file_path = StockService.get_latest_report_file("report")
         if not file_path:
             return None
-        
+
         try:
             content = file_path.read_text(encoding="utf-8")
             # 匹配模式：
             # ## [emoji] 股票名 (code) ... 到下一个 ## 或 ---
             # 这里的 code 是传入的 code 参数
             # 考虑到可能有正则特殊字符，使用 re.escape 并不是完全适用，因为我们要匹配 markdown 结构
-            
+
             # 搜索标题行，类似 "## 🟢 XD工业富 (601138)"
             # 我们寻找包含 `(code)` 的二级标题
-            pattern = re.compile(rf"^##\s+.*?\({code}\).*?$(.*?)(?=^##|\Z)", re.MULTILINE | re.DOTALL)
-            
+            pattern = re.compile(
+                rf"^##\s+.*?\({code}\).*?$(.*?)(?=^##|\Z)", re.MULTILINE | re.DOTALL
+            )
+
             match = pattern.search(content)
             if match:
                 # 提取出的内容包含标题本身（因为group(0)会包含，但这里使用了group(1)提取content）
                 # 等等，上面的正则 group(1) 是 (.*?)，也就是标题后的内容。
                 # 我们希望包含标题，以便知道是哪只股票
-                
+
                 # 重新调整正则：捕获整个块
-                full_pattern = re.compile(rf"(^##\s+.*?\({code}\).*?)(?=^##|---|\Z)", re.MULTILINE | re.DOTALL)
+                full_pattern = re.compile(
+                    rf"(^##\s+.*?\({code}\).*?)(?=^##|---|\Z)", re.MULTILINE | re.DOTALL
+                )
                 full_match = full_pattern.search(content)
                 if full_match:
                     return full_match.group(1).strip()
@@ -253,7 +303,9 @@ class StockService:
         from nonebot_plugin_htmlrender import html_to_pic
 
         # 1. Convert Markdown to HTML
-        html_body = markdown.markdown(markdown_content, extensions=['tables', 'fenced_code'])
+        html_body = markdown.markdown(
+            markdown_content, extensions=["tables", "fenced_code"]
+        )
 
         # 2. Construct full HTML with custom CSS
         css = """
@@ -301,9 +353,9 @@ class StockService:
         </body>
         </html>
         """
-        
+
         # 3. Render directly from HTML string
         return await html_to_pic(
             html=html_content,
-            viewport={"width": 650, "height": 100} # Height will auto-expand
+            viewport={"width": 650, "height": 100},  # Height will auto-expand
         )

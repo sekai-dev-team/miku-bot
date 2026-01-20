@@ -45,7 +45,8 @@ async def handle_stock(bot: Bot, event: MessageEvent, args: Message = CommandArg
         for item in watchlist:
             emoji = "🔴" if item['pct_chg'] > 0 else "🟢" if item['pct_chg'] < 0 else "⚪"
             # 兼容A股红涨绿跌习惯，或者根据Emoji: 🔴涨 🟢跌
-            msg += f"{emoji} {item['code']}: {item['close']} ({item['pct_chg']}%) \n"
+            name_part = f"{item['name']} " if 'name' in item and item['name'] != item['code'] else ""
+            msg += f"{emoji} {name_part}{item['code']}: {item['close']} ({item['pct_chg']}%) \n"
             
         msg += "\n💡 发送 /stock <代码> 可查看该股的 AI 深度研报卡片。"
         await stock_cmd.finish(msg)
