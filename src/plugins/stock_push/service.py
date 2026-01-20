@@ -368,8 +368,9 @@ class StockService:
         if is_html:
             html_body = content
         else:
+            # Enable nl2br to preserve line breaks, and sane_lists to handle lists without preceding empty lines
             html_body = markdown.markdown(
-                content, extensions=["tables", "fenced_code"]
+                content, extensions=["tables", "fenced_code", "nl2br", "sane_lists"]
             )
 
         # 2. Construct full HTML with custom CSS
