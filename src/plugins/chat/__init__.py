@@ -10,7 +10,7 @@ from nonebot.permission import SUPERUSER
 from nonebot.params import ArgPlainText, CommandArg
 from nonebot_plugin_htmlrender import md_to_pic
 # plugin
-import asyncio, re, json
+import asyncio, re, json, base64
 from pathlib import Path
 from datetime import datetime
 from .config import Config as PluginConfig
@@ -241,7 +241,11 @@ async def _(event: GroupMessageEvent):
                             # Windows path fix: file:///C:/...
                             path_obj = Path(voice_path)
                             if path_obj.exists():
-                                await ai.send(MessageSegment.record(file=path_obj.as_uri()))
+                                # Use base64 to avoid filesystem sharing issues between containers
+                                with open(path_obj, "rb") as f:
+                                    voice_data = f.read()
+                                    base64_str = base64.b64encode(voice_data).decode()
+                                await ai.send(MessageSegment.record(file=f"base64://{base64_str}"))
                                 tool_res = "已发送语音。"
                             else:
                                 tool_res = "语音文件生成失败 (文件不存在)。"
