@@ -44,7 +44,7 @@ class VoiceService:
             async with httpx.AsyncClient() as client:
                 # 优先尝试 POST (功能更全)
                 # 增加超时时间，因为 TTS 可能较慢
-                resp = await client.post(f"{url}/tts", json=payload, timeout=60.0)
+                resp = await client.post(f"{url}/tts", json=payload, timeout=120.0)
                 
                 # 如果 POST 失败 (405 Method Not Allowed)，尝试 GET
                 if resp.status_code == 405:
@@ -59,7 +59,7 @@ class VoiceService:
                         "media_type": payload["media_type"]
                         # 注意：GET 模式下通常无法传递复杂的推理参数 (如 speed_factor, top_k 等)，视服务端实现而定
                     }
-                    resp = await client.get(f"{url}/tts", params=params, timeout=60.0)
+                    resp = await client.get(f"{url}/tts", params=params, timeout=120.0)
 
                 resp.raise_for_status()
                 
@@ -97,7 +97,7 @@ class VoiceService:
                 return str(output_path.absolute())
                 
         except Exception as e:
-            logger.error(f"TTS synthesis failed: {e}")
+            logger.error(f"TTS synthesis failed ({type(e).__name__}): {e}")
             raise e
 
     @staticmethod
