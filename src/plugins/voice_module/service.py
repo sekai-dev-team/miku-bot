@@ -141,13 +141,18 @@ class VoiceService:
 
 @tool_registry.register(
     name="speak_text",
-    description="将文本转换为语音发送。当用户要求'念出来'、'说这句'，或者你觉得用语音表达更合适时使用。不要在每一句话都使用，仅在特定情境下使用。",
+    description="将文本转换为语音发送。支持中文(zh)、日语(ja)、英语(en)。当用户要求'念出来'、'说这句'，或者你觉得用语音表达更合适时使用。如果你发现文本是日语或英语，请务必设置正确的lang参数。",
     parameters={
         "type": "object",
         "properties": {
             "text": {
                 "type": "string",
                 "description": "需要朗读的文本内容"
+            },
+            "lang": {
+                "type": "string",
+                "description": "语言代码：zh(中文), ja(日语), en(英语), ko(韩语)",
+                "enum": ["zh", "ja", "en", "ko"]
             },
              "emotion": {
                 "type": "string",
@@ -158,12 +163,18 @@ class VoiceService:
         "required": ["text"]
     }
 )
-async def speak_text(text: str, emotion: str = "neutral") -> str:
+async def speak_text(text: str, lang: str = "zh", emotion: str = "neutral") -> str:
     """
     TTS 工具入口
     """
+    # 简单的自动识别增强：如果包含日语假名且未指定语言，尝试自动设为 ja
+    import re
+    if lang == "zh" and re.search(r"[\u3040-\u309F\u30A0-\u30FF]", text):
+        lang = "ja"
+        logger.info(f"Detected Japanese characters, switching lang to 'ja'")
+
     try:
-        file_path = await VoiceService.synthesize(text)
+        file_path = await VoiceService.synthesize(text, lang=lang)
         return f"[VOICE:{file_path}]"
     except Exception as e:
         return f"语音合成失败: {str(e)}"
