@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir gunicorn uvicorn[standard] && \
 
 # Combine apt install, playwright install, and cleanup to reduce image size
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends fonts-noto-cjk libegl1 libgl1 && \
+    apt-get install -y --no-install-recommends fonts-noto-cjk libegl1 libgl1 ffmpeg && \
     playwright install chromium && \
     playwright install-deps chromium && \
     rm -rf /var/lib/apt/lists/*

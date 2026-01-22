@@ -232,6 +232,23 @@ async def _(event: GroupMessageEvent):
                     args = json.loads(args_str)
                     # 执行工具
                     tool_res = await tool_registry.dispatch(func_name, args)
+
+                    # 检查是否是语音结果
+                    if isinstance(tool_res, str) and tool_res.startswith("[VOICE:"):
+                        voice_path = tool_res[7:-1]
+                        try:
+                            # 发送语音
+                            # Windows path fix: file:///C:/...
+                            path_obj = Path(voice_path)
+                            if path_obj.exists():
+                                await ai.send(MessageSegment.record(file=path_obj.as_uri()))
+                                tool_res = "已发送语音。"
+                            else:
+                                tool_res = "语音文件生成失败 (文件不存在)。"
+                        except Exception as e:
+                            logger.error(f"Failed to send voice: {e}")
+                            tool_res = f"语音生成成功但发送失败: {e}"
+
                 except Exception as e:
                     tool_res = f"Error executing tool: {e}"
                 
