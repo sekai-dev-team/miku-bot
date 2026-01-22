@@ -2,7 +2,7 @@ name: Docker Hub Release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
 
 jobs:
   docker:
@@ -28,7 +28,8 @@ jobs:
           images: |
             ${{ secrets.DOCKERHUB_USERNAME }}/miku-bot
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=test,enable=${{ github.ref != 'refs/heads/main' }}
             type=sha,format=long
 
       - name: Build and Publish
