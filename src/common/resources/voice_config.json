@@ -8,5 +8,6 @@
     "temperature": 1.0,
     "speed_factor": 1.0,
     "text_split_method": "cut0",
-    "max_segment_length": 50
+    "max_segment_length": 50,
+    "parallel_infer": "false"
 }

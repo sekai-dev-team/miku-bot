@@ -189,14 +189,18 @@ async def _(event: GroupMessageEvent):
                 sentence = sb.append(char)
                 if sentence:
                     # 全面去除行首的 Miku: 前缀，增加人味
-                    miku_prefix = r"^(Miku[:：])+"
-                    sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE).strip()
+                    # 使用 MULTILINE 模式确保处理多行文本（兜底 SentenceBuffer 可能漏切的情况）
+                    miku_prefix = r"^\s*Miku[:：]+\s*"
+                    sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE | re.MULTILINE).strip()
                     
                     if sentence:
-                        await ai.send(sentence)
-                        group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sentence}")
-                        LISTENER.listen(group_msg)
-                        await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
+                        # 二次切分：防止因代码块标记等原因导致的大段文本未切分
+                        sub_lines = [s.strip() for s in sentence.split('\n') if s.strip()]
+                        for sub_line in sub_lines:
+                            await ai.send(sub_line)
+                            group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sub_line}")
+                            LISTENER.listen(group_msg)
+                            await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
 
         # Check for DSML (DeepSeek XML format)
         dsml_tool_calls = []
