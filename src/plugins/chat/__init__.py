@@ -305,6 +305,7 @@ async def _(bot: Bot, event: MessageEvent):  # 支持私聊
     balance = await SystemMonitor.balance() # 记得 await 异步方法
     mem = SystemMonitor.memory()
     cpu = SystemMonitor.cpu()
+    vram = SystemMonitor.vram()
     
     # 获取群组信息
     try:
@@ -320,12 +321,16 @@ async def _(bot: Bot, event: MessageEvent):  # 支持私聊
          group_stat += f"\n活跃上下文: {len(active_groups)}\n" + "\n".join(active_groups)
     
     # 拼接消息
+    # 如果 vram 存在，则加入到消息中
+    vram_section = f"{vram}\n" if vram else ""
+
     message = (
         f"Miku 状态报告\n"
         f"------------------\n"
         f"{uptime}\n"
         f"{cpu}\n"
         f"{mem}\n"
+        f"{vram_section}"
         f"------------------\n"
         f"{balance}\n"
         f"------------------\n"

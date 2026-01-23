@@ -2,6 +2,8 @@ import psutil
 import httpx
 import json
 import time
+import subprocess
+import shutil
 from datetime import timedelta
 from nonebot import get_plugin_config
 from .config import Config
@@ -39,6 +41,60 @@ class SystemMonitor:
             f"{bar}\n"
             f"   {used_mb:.0f}MB / {total_mb:.0f}MB"
         )
+
+    @classmethod
+    def vram(cls) -> str:
+        """尝试获取显存状态 (NVIDIA only)"""
+        if not shutil.which("nvidia-smi"):
+            # 如果没有 nvidia-smi，静默返回 None 或简短提示，避免刷屏
+            # 这里返回 None 让调用者决定是否显示
+            return None
+        
+        try:
+            # Query memory.used and memory.total in MB
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                return None
+
+            output = result.stdout.strip()
+            lines = output.split('\n')
+            if not lines or not output:
+                return None
+
+            info_str = ""
+            for i, line in enumerate(lines):
+                try:
+                    parts = line.split(',')
+                    if len(parts) == 2:
+                        used = float(parts[0].strip())
+                        total = float(parts[1].strip())
+                        percent = (used / total) * 100 if total > 0 else 0
+                        
+                        bar = cls._progress_bar(percent)
+                        # If multiple GPUs, prefix with index
+                        prefix = f"GPU{i}: " if len(lines) > 1 else "显存: "
+                        
+                        # Add newline only if it's not the first item
+                        if info_str: 
+                            info_str += "\n"
+                            
+                        info_str += (
+                            f"{prefix}{percent:.1f}%\n"
+                            f"{bar}\n"
+                            f"   {used:.0f}MB / {total:.0f}MB"
+                        )
+                except ValueError:
+                    continue
+                    
+            return info_str if info_str else None
+
+        except Exception:
+            return None
     
     @classmethod
     def cpu(cls) -> str:
