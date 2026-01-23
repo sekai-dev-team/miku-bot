@@ -13,7 +13,7 @@ from nonebot_plugin_htmlrender import md_to_pic
 import asyncio, re, json, base64
 from pathlib import Path
 from datetime import datetime
-from .config import Config as PluginConfig
+from .config import plugin_config as PLUGIN_CONFIG
 # from .ai import AI  <-- Removed
 from src.common.ai_service import AIService # <-- Added
 from src.common.tool_registry import tool_registry
@@ -24,7 +24,6 @@ from .utils import get_event_info, is_friend, parse_dsml_tool_calls
 from .msg_context import SimulatedGroupMsgListener
 from .help_menu import get_main_menu_text, get_plugin_help_text
 # constant
-PLUGIN_CONFIG = get_plugin_config(PluginConfig)
 LISTENER = SimulatedGroupMsgListener()
 
 # hook
@@ -448,3 +447,23 @@ async def _(bot: Bot, event: GroupRequestEvent):
             await bot.send_private_msg(
                 user_id="可以填写管理员（非bot）的qq，或者任意你希望接受bot消息的用户", message=f"({user_id})加群失败。\n原因：密码错误。"
             )
+
+# --- Configuration Management ---
+from src.common.config_manager import config_manager
+reload_cmd = on_command("reload_config", aliases={"刷新配置", "重载配置"}, permission=SUPERUSER, priority=1, block=True)
+
+@reload_cmd.handle()
+async def _(matcher: Matcher):
+    try:
+        config_manager.reload()
+        # Trigger voice config reload if module is active
+        try:
+            from src.plugins.voice_module.config import config as voice_config
+            voice_config.load_from_file()
+        except ImportError:
+            pass
+            
+        await matcher.finish("配置已刷新！(Plugin Configs reloaded from YAML)")
+    except Exception as e:
+        logger.error(f"Failed to reload config: {e}")
+        await matcher.finish(f"配置刷新失败：{e}")

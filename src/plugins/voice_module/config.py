@@ -2,8 +2,7 @@ import json
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Any
-
-CONFIG_PATH = Path(__file__).parent.parent.parent / "common" / "resources" / "voice_config.json"
+from src.common.config_manager import config_manager
 
 class Config(BaseModel):
     # TTS 容器的 API 地址
@@ -23,25 +22,20 @@ class Config(BaseModel):
     speed_factor: float = 1.0
     text_split_method: str = "cut0"  # 默认不切分，由 Bot 控制短文本
     max_segment_length: int = 50
+    parallel_infer: bool = False
 
     def __init__(self, **data: Any):
         super().__init__(**data)
         self.load_from_file()
 
     def load_from_file(self):
-        if CONFIG_PATH.exists():
-            try:
-                data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-                for key, value in data.items():
-                    if hasattr(self, key):
-                        setattr(self, key, value)
-            except Exception as e:
-                print(f"Error loading voice config: {e}")
+        data = config_manager.get_config("voice")
+        for key, value in data.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
     def save_to_file(self):
-        try:
-            # exclude=None to save all fields
-            data = self.model_dump()
-            CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
-        except Exception as e:
-            print(f"Error saving voice config: {e}")
+        data = self.model_dump()
+        config_manager.save_config("voice", data)
+
+config = Config()

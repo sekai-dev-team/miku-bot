@@ -21,6 +21,7 @@ dependencies = [
     "docker",
     "beautifulsoup4",
     "markdown",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]

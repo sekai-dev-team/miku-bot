@@ -1,11 +1,8 @@
 from collections import deque
 import time
 import re
-from nonebot import get_plugin_config
 from nonebot import logger
-from .config import Config
-
-CONFIG = get_plugin_config(Config)
+from .config import plugin_config as CONFIG
 
 class SimulatedGroupMsg:
     def __init__(self, group_id, sender_name, user_role, content) -> None:

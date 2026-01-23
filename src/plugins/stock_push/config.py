@@ -1,6 +1,6 @@
-from nonebot import get_plugin_config
 from pydantic import BaseModel
-from typing import List, Set
+from typing import List
+from src.common.config_manager import config_manager
 
 class StockConfig(BaseModel):
     # 默认推送时间 (格式: "HH:MM")
@@ -8,4 +8,11 @@ class StockConfig(BaseModel):
     # 默认推送群组 (来自 .env)
     stock_push_groups: List[str] = []
 
-stock_config = get_plugin_config(StockConfig)
+def get_config() -> StockConfig:
+    return StockConfig(**config_manager.get_config("stock_push"))
+
+class ConfigProxy:
+    def __getattr__(self, name):
+        return getattr(get_config(), name)
+
+stock_config = ConfigProxy()

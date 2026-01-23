@@ -14,6 +14,7 @@ services:
       SUPERUSERS: '填写超级用户，可选数组'
       COMMAND_START: '["/"]'
     volumes:
+      - ./plugin_configs.yaml:/app/plugin_configs.yaml
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock

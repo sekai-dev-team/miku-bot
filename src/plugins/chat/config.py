@@ -1,4 +1,5 @@
 from pydantic import BaseModel, field_validator
+from src.common.config_manager import config_manager
 
 class Config(BaseModel):
     # Role definitions
@@ -38,3 +39,12 @@ class Config(BaseModel):
         if 0 <= value <= 50:
             return value
         raise ValueError("response index must between [0, 50]")
+
+def get_config() -> Config:
+    return Config(**config_manager.get_config("chat"))
+
+class ConfigProxy:
+    def __getattr__(self, name):
+        return getattr(get_config(), name)
+
+plugin_config = ConfigProxy()

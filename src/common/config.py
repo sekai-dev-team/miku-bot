@@ -1,5 +1,5 @@
-from nonebot import get_plugin_config
 from pydantic import BaseModel, field_validator
+from .config_manager import config_manager
 
 class GlobalAIConfig(BaseModel):
     """
@@ -35,5 +35,16 @@ class GlobalAIConfig(BaseModel):
             return value
         raise ValueError("temperature must between [0, 2]")
 
-# 便捷获取配置的实例
-GLOBAL_AI_CONFIG = get_plugin_config(GlobalAIConfig)
+def get_global_ai_config() -> GlobalAIConfig:
+    """Helper to get fresh config"""
+    data = config_manager.get_config("global_ai")
+    return GlobalAIConfig(**data)
+
+class GlobalConfigProxy:
+    """Proxy to ensure we always get the latest config values"""
+    def __getattr__(self, name):
+        cfg = get_global_ai_config()
+        return getattr(cfg, name)
+
+# 便捷获取配置的实例 (Proxy)
+GLOBAL_AI_CONFIG = GlobalConfigProxy()
