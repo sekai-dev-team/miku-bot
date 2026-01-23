@@ -233,11 +233,10 @@ async def _(event: GroupMessageEvent):
                     # 执行工具
                     tool_res = await tool_registry.dispatch(func_name, args)
 
-                    # 检查是否是语音结果
-                    if isinstance(tool_res, str) and tool_res.startswith("[VOICE:"):
-                        voice_path = tool_res[7:-1]
+                    # Helper to process voice tags
+                    async def process_voice_tag(tag_content: str) -> str:
+                        voice_path = tag_content[7:-1]
                         try:
-                            # 发送语音
                             # Windows path fix: file:///C:/...
                             path_obj = Path(voice_path)
                             if path_obj.exists():
@@ -246,12 +245,33 @@ async def _(event: GroupMessageEvent):
                                     voice_data = f.read()
                                     base64_str = base64.b64encode(voice_data).decode()
                                 await ai.send(MessageSegment.record(file=f"base64://{base64_str}"))
-                                tool_res = "已发送语音。"
+                                return "已发送语音。"
                             else:
-                                tool_res = "语音文件生成失败 (文件不存在)。"
+                                return "语音文件生成失败 (文件不存在)。"
                         except Exception as e:
                             logger.error(f"Failed to send voice: {e}")
-                            tool_res = f"语音生成成功但发送失败: {e}"
+                            return f"语音生成成功但发送失败: {e}"
+
+                    history_content = ""
+                    import inspect
+                    if inspect.isasyncgen(tool_res):
+                        # 流式工具结果处理
+                        async for chunk in tool_res:
+                            chunk_str = str(chunk)
+                            if chunk_str.startswith("[VOICE:"):
+                                res_msg = await process_voice_tag(chunk_str)
+                                history_content += res_msg + "\n"
+                            else:
+                                history_content += chunk_str
+                    else:
+                        # 普通工具结果处理
+                        tool_res_str = str(tool_res)
+                        if tool_res_str.startswith("[VOICE:"):
+                            history_content = await process_voice_tag(tool_res_str)
+                        else:
+                            history_content = tool_res_str
+
+                    tool_res = history_content.strip()
 
                 except Exception as e:
                     tool_res = f"Error executing tool: {e}"

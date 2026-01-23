@@ -77,10 +77,21 @@ Description: 文本朗读与语音回复
 **2. 自动回复**
    - 在日常聊天中，我也可能偶尔用语音给你惊喜哒~
 
-**3. 模型切换 (管理员)**
+**3. 语音配置 (管理员)**
+   - `/vconf <key> <value>`: 修改语音配置
+   - 例: `/vconf speed_factor 1.2` (语速调整为 1.2 倍)
+   - 可配置项:
+     - `speed_factor`: 语速 (默认 1.0)
+     - `max_segment_length`: 长文本切分长度 (默认 50)
+     - `temperature`: 随机度 (默认 1.0)
+     - `top_k`, `top_p`: 采样参数
+
+**4. 模型切换 (管理员)**
    - `/switch_model <模型名>`: 快速切换语音模型
    - `/switch_model -g <gpt路径> -s <sovits路径>`: 指定权重路径切换
    - 例: `/switch_model mika_zh` (自动加载 mika_zh.ckpt 和 mika_zh.pth)
+   - `/load_gpt <路径>`: 仅切换 GPT 权重
+   - `/load_sovits <路径>`: 仅切换 SoVITS 权重
 
 ---
 

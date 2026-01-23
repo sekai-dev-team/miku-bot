@@ -149,7 +149,7 @@ class VoiceService:
 
     @staticmethod
     def update_config(key: str, value: str):
-        """动态更新配置 (暂存内存)"""
+        """动态更新配置 (暂存内存并持久化)"""
         if hasattr(config, key):
             # 类型转换
             field_type = type(getattr(config, key))
@@ -161,10 +161,15 @@ class VoiceService:
                 else:
                     new_val = value
                 setattr(config, key, new_val)
+                # Persist changes
+                config.save_to_file()
                 return True
             except ValueError:
                 return False
         return False
+
+from typing import AsyncGenerator
+from .text_splitter import split_text_into_segments
 
 @tool_registry.register(
     name="speak_text",
@@ -190,7 +195,7 @@ class VoiceService:
         "required": ["text"]
     }
 )
-async def speak_text(text: str, lang: str = "zh", emotion: str = "neutral") -> str:
+async def speak_text(text: str, lang: str = "zh", emotion: str = "neutral") -> AsyncGenerator[str, None]:
     """
     TTS 工具入口
     """
@@ -200,8 +205,22 @@ async def speak_text(text: str, lang: str = "zh", emotion: str = "neutral") -> s
         lang = "ja"
         logger.info(f"Detected Japanese characters, switching lang to 'ja'")
 
-    try:
-        file_path = await VoiceService.synthesize(text, lang=lang)
-        return f"[VOICE:{file_path}]"
-    except Exception as e:
-        return f"语音合成失败: {str(e)}"
+    segments = split_text_into_segments(text, max_length=config.max_segment_length)
+    if not segments:
+        yield "语音合成失败: 文本为空"
+        return
+
+    logger.info(f"Splitting text into {len(segments)} segments for TTS.")
+
+    success_count = 0
+    for segment in segments:
+        try:
+            file_path = await VoiceService.synthesize(segment, lang=lang)
+            yield f"[VOICE:{file_path}]"
+            success_count += 1
+        except Exception as e:
+            logger.error(f"TTS synthesis failed for segment '{segment[:10]}...': {e}")
+            # 继续尝试下一个片段
+            
+    if success_count == 0:
+        yield f"语音合成失败"

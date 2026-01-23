@@ -1,0 +1,51 @@
+services:
+  miku-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: 007hikari/miku-bot:latest
+    container_name: miku-bot
+    ports:
+    - 9999:9999
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SUPERUSERS: '填写超级用户，可选数组'
+      COMMAND_START: '["/"]'
+    volumes:
+      - ./data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # 挂载源码中的资源目录，以便持久化保存自定义提示词(custom_bili_prompts.json)和修改手册/人设
+      - ./src/common/resources:/app/src/common/resources
+
+      # 与其他容器共享命名卷，默认注释以保证开箱即用。若需使用请先在下方 volumes 模块取消注释并确保卷已创建。
+      # - YOUR_NAMED_VOLUME_A:/app/data/stock/data:ro                 # 与Daily stock analysis共享股票数据（https://github.com/ZhuLinsen/daily_stock_analysis）
+      # - YOUR_NAMED_VOLUME_B:/app/data/stock/reports:ro              # 与Daily stock analysis共享股票数据（https://github.com/ZhuLinsen/daily_stock_analysis）
+      # - YOUR_NAMED_VOLUME_C:/app/data/local_bilinote:ro             # 与Bilinote共享笔记数据
+      # - YOUR_NAMED_VOLUME_D:/app/data/news:ro                       # 与TrendRadar共享新闻数据（https://github.com/sansan0/TrendRadar）
+
+    # 网络配置可选
+    # networks:
+    #   - YOUR_NETWORK
+
+# networks:
+#   YOUR_NETWORK:
+#     external: true
+
+# volumes:
+#   # 股票数据
+#   YOUR_NAMED_VOLUME_A:
+#     external: true
+#   YOUR_NAMED_VOLUME_B:
+#     external: true
+#   # 笔记数据
+#   YOUR_NAMED_VOLUME_C:
+#     external: true
+#   # 新闻数据
+#   YOUR_NAMED_VOLUME_D:
+#     external: true
+
+

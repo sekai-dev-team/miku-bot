@@ -46,8 +46,11 @@ class ToolRegistry:
         
         func = cls._tools[tool_name]
         try:
+            # 检查函数是否是异步生成器
+            if inspect.isasyncgenfunction(func):
+                return func(**arguments)
             # 检查函数是否是异步的
-            if inspect.iscoroutinefunction(func):
+            elif inspect.iscoroutinefunction(func):
                 result = await func(**arguments)
             else:
                 result = func(**arguments)

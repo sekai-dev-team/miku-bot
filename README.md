@@ -96,9 +96,12 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
 *   **工作流**:
     1.  **AI 决策**: 用户请求朗读或 AI 觉得适合语音回复时，调用 `speak_text` 工具。
     2.  **API 调用**: 插件向 `tts-infer` 容器发送合成请求。
-    3.  **音频处理**: 接收 WAV/MP3 音频流，并保存为临时文件。
-    4.  **消息发送**: 通过 OneBot 发送语音消息 `[VOICE:path]`。
-    5.  **模型管理**: 管理员可通过 `/switch_model` 动态切换 GPT-SoVITS 模型权重。
+    3.  **文本切分**: 长文本会被切分为短句（默认 50 字），逐句流式合成，减少等待时间。
+    4.  **音频处理**: 接收 WAV/MP3 音频流，并保存为临时文件。
+    5.  **消息发送**: 通过 OneBot 发送语音消息 `[VOICE:path]`。
+    6.  **管理功能**:
+        *   **配置**: `/vconf` 修改语速、切分长度等参数。
+        *   **模型**: `/switch_model` 动态切换 GPT-SoVITS 模型权重。
 
 ---
 
