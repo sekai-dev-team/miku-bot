@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from nonebot import get_plugin_config
+from src.common.config_manager import config_manager
 
 class Config(BaseModel):
     # 记录触发词（回复消息时）
@@ -11,4 +11,11 @@ class Config(BaseModel):
     # 戳一戳是否触发
     ENABLE_POKE: bool = True
 
-plugin_config = get_plugin_config(Config)
+def get_config() -> Config:
+    return Config(**config_manager.get_config("history_book"))
+
+class ConfigProxy:
+    def __getattr__(self, name):
+        return getattr(get_config(), name)
+
+plugin_config = ConfigProxy()

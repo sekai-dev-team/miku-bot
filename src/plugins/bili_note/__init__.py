@@ -10,53 +10,49 @@ from nonebot.log import logger
 from nonebot.typing import T_State
 from nonebot.permission import SUPERUSER
 from src.common.bili_prompts import PROMPTS, PROMPT_ALIASES
+from src.common.config_manager import config_manager
 
 # Constants
 CONTAINER_NAME = "sekai-bilinote-local"
 SHARED_DIR = Path("/app/data/local_bilinote")
-CUSTOM_PROMPTS_PATH = Path("src/common/resources/custom_bili_prompts.json")
 
 # Helper Functions
 def get_all_prompts():
-    """Merge default prompts with custom prompts."""
+    """Merge default prompts with custom prompts from ConfigManager."""
+    # Start with code-level fallbacks (usually empty now)
     prompts = PROMPTS.copy()
-    if CUSTOM_PROMPTS_PATH.exists():
-        try:
-            content = CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8")
-            if content:
-                custom = json.loads(content)
-                prompts.update(custom)
-        except Exception as e:
-            logger.error(f"Failed to load custom prompts: {e}")
+    
+    # Get from ConfigManager
+    prompts_config = config_manager.get_config("prompts")
+    bili_notes = prompts_config.get("bili_notes", {})
+    
+    if bili_notes:
+        prompts.update(bili_notes)
+        
     return prompts
 
 def save_custom_prompt(name: str, content: str):
-    """Save a new custom prompt."""
-    custom = {}
-    if CUSTOM_PROMPTS_PATH.exists():
-        try:
-            file_content = CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8")
-            if file_content:
-                custom = json.loads(file_content)
-        except Exception:
-            pass
+    """Save a new custom prompt to YAML config."""
+    prompts_config = config_manager.get_config("prompts")
     
-    custom[name] = content
-    CUSTOM_PROMPTS_PATH.write_text(json.dumps(custom, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Ensure nested dict exists
+    if "bili_notes" not in prompts_config:
+        prompts_config["bili_notes"] = {}
+        
+    prompts_config["bili_notes"][name] = content
+    
+    # Save back to file
+    config_manager.save_config("prompts", prompts_config)
 
 def delete_custom_prompt(name: str) -> bool:
-    """Delete a custom prompt. Returns True if deleted, False if not found."""
-    if not CUSTOM_PROMPTS_PATH.exists():
-        return False
+    """Delete a custom prompt from YAML config."""
+    prompts_config = config_manager.get_config("prompts")
+    
+    if "bili_notes" in prompts_config and name in prompts_config["bili_notes"]:
+        del prompts_config["bili_notes"][name]
+        config_manager.save_config("prompts", prompts_config)
+        return True
         
-    try:
-        custom = json.loads(CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8"))
-        if name in custom:
-            del custom[name]
-            CUSTOM_PROMPTS_PATH.write_text(json.dumps(custom, ensure_ascii=False, indent=2), encoding="utf-8")
-            return True
-    except Exception:
-        pass
     return False
 
 # Command definition
@@ -211,16 +207,13 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
     
     if action in ["list", "列表", "ls"]:
         all_prompts = get_all_prompts()
-        custom_prompts_keys = []
-        if CUSTOM_PROMPTS_PATH.exists():
-             try:
-                 custom_prompts_keys = list(json.loads(CUSTOM_PROMPTS_PATH.read_text(encoding="utf-8")).keys())
-             except: pass
-
+        
+        # Identify custom ones (actually all are from YAML now, but we can distinguish defaults if needed)
+        # For now, everything in YAML under bili_notes is considered "Active"
+        
         msg = "📝 Miku 的笔记提示词列表：\n------------------\n"
         for key in all_prompts.keys():
-            mark = " (自定义)" if key in custom_prompts_keys else " (系统)"
-            msg += f"- {key}{mark}\n"
+            msg += f"- {key}\n"
         
         msg += "\n💡 指令示例：\n/笔记提示词 add 我的模板 请帮我总结...\n/笔记提示词 del 我的模板\n/笔记提示词 view 默认"
         await cmd_bili_prompt.finish(msg)
@@ -232,10 +225,6 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
         name = argv[1]
         content = argv[2]
         
-        # Remove restriction on overriding system prompts
-        # if name in PROMPTS:
-        #    await cmd_bili_prompt.finish(f"'{name}' 是系统自带的提示词，不能覆盖哦！请换个名字吧。")
-            
         save_custom_prompt(name, content)
         await cmd_bili_prompt.finish(f"成功添加自定义提示词 '{name}'！\n以后可以使用 `/笔记 <链接> {name}` 来调用啦。")
 
@@ -247,7 +236,7 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
         if delete_custom_prompt(name):
             await cmd_bili_prompt.finish(f"已删除自定义提示词 '{name}'。")
         else:
-            await cmd_bili_prompt.finish(f"找不到名字叫 '{name}' 的自定义提示词哦（系统自带的无法删除）。")
+            await cmd_bili_prompt.finish(f"找不到名字叫 '{name}' 的自定义提示词哦。")
             
     elif action in ["view", "查看", "show", "get"]:
          if len(argv) < 2:
@@ -262,7 +251,7 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
     elif action in ["help", "帮助", "-h", "--help"]:
         help_msg = (
             "📖 **笔记提示词管理指南**\n"
-            "Miku 的笔记提示词现在完全由 JSON 配置文件管理，您可以自由添加、修改或覆盖系统默认的提示词。\n\n"
+            "Miku 的笔记提示词现在完全由 `plugin_configs.yaml` 统一管理。\n\n"
             "**可用指令：**\n"
             "1. **查看列表**\n"
             "   `/笔记提示词 list`\n"
@@ -273,13 +262,13 @@ async def handle_prompt_mgr(bot: Bot, event: Event, args: Message = CommandArg()
             "   例：`/笔记提示词 view 搞笑`\n\n"
             "3. **添加/修改**\n"
             "   `/笔记提示词 add <名称> <内容>`\n"
-            "   添加新的提示词，或者**覆盖**同名的现有提示词（包括默认的）。\n"
+            "   添加新的提示词，或者**覆盖**同名的现有提示词。\n"
             "   例：`/笔记提示词 add 默认 请帮我用可爱语气总结...`\n\n"
             "4. **删除**\n"
             "   `/笔记提示词 del <名称>`\n"
-            "   删除自定义的提示词。如果删除了覆盖系统默认的提示词，将恢复为系统默认版本（如果有）。\n"
-            "   例：`/笔记提示词 del 默认` (恢复初始默认提示词)\n\n"
-            "💡 **提示**：所有修改都会保存在 `custom_bili_prompts.json` 中，重启后依然有效哦！"
+            "   删除自定义的提示词。\n"
+            "   例：`/笔记提示词 del 默认`\n\n"
+            "💡 **提示**：所有修改都会保存在 `plugin_configs.yaml` 中，重启后依然有效哦！"
         )
         await cmd_bili_prompt.finish(help_msg)
 

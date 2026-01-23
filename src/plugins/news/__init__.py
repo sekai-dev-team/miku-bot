@@ -1,20 +1,33 @@
 import os
 import base64
 import re
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Set
 
-from nonebot import on_command, on_message, get_bot
+from nonebot import on_command, on_message, get_bot, require
 from nonebot.exception import FinishedException
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent, PrivateMessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.rule import to_me
 from nonebot.log import logger
 
+require("nonebot_plugin_apscheduler")
+from nonebot_plugin_apscheduler import scheduler
+
 from src.common.ai_service import AIService
 from src.common.config import GLOBAL_AI_CONFIG
 from .data_source import NewsDatabase
 from .service import NewsService
+from .config import news_config
+
+# 尝试导入 VoiceService
+try:
+    from src.plugins.voice_module.service import VoiceService
+except ImportError:
+    VoiceService = None
+    logger.warning("VoiceService import failed in news")
 
 # 尝试导入渲染引擎
 try:
@@ -25,17 +38,76 @@ except ImportError:
 # 路径定义 - 优先从环境变量读取
 NEWS_ROOT = Path(os.getenv("NEWS_DATA_PATH", "/app/data/news"))
 
+# --- Subscriber Manager ---
+class NewsSubscriberManager:
+    DATA_FILE = Path("data/news_subscribers.json")
+    
+    @classmethod
+    def load(cls) -> Set[str]:
+        if not cls.DATA_FILE.exists():
+            return set()
+        try:
+            with open(cls.DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return set(map(str, data.get("groups", [])))
+        except Exception as e:
+            logger.error(f"Failed to load news subscribers: {e}")
+            return set()
+
+    @classmethod
+    def save(cls, groups: Set[str]):
+        cls.DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(cls.DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump({"groups": list(groups)}, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save news subscribers: {e}")
+
+    @classmethod
+    def add(cls, group_id: str):
+        groups = cls.load()
+        groups.add(str(group_id))
+        cls.save(groups)
+
+    @classmethod
+    def remove(cls, group_id: str):
+        groups = cls.load()
+        if str(group_id) in groups:
+            groups.remove(str(group_id))
+            cls.save(groups)
+    
+    @classmethod
+    def get_all_targets(cls) -> List[int]:
+        env_groups = set(map(str, news_config.news_push_groups))
+        json_groups = cls.load()
+        return [int(g) for g in (env_groups | json_groups) if g.isdigit()]
+
 news_cmd = on_command("news", aliases={"新闻"}, priority=5, block=True)
 
 @news_cmd.handle()
 async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
-    # 1. 解析参数
     arg_list = args.extract_plain_text().strip().split()
     offset = 0
     need_summary = False
     search_keyword = None
     
-    # 简单的参数解析逻辑
+    # --- 订阅管理 ---
+    if arg_list and arg_list[0] in ["bind", "订阅", "开启推送"]:
+        if isinstance(event, GroupMessageEvent):
+            NewsSubscriberManager.add(str(event.group_id))
+            await news_cmd.finish(f"已开启本群 ({event.group_id}) 的每日新闻播报！")
+        else:
+            await news_cmd.finish("请在群聊中使用此指令哦。")
+        return
+
+    if arg_list and arg_list[0] in ["unbind", "退订", "关闭推送"]:
+        if isinstance(event, GroupMessageEvent):
+            NewsSubscriberManager.remove(str(event.group_id))
+            await news_cmd.finish(f"已关闭本群 ({event.group_id}) 的每日新闻播报。")
+        else:
+            await news_cmd.finish("请在群聊中使用此指令哦。")
+        return
+    
     if len(arg_list) >= 2 and arg_list[0] in ["search", "搜", "搜索", "find"]:
         search_keyword = arg_list[1]
     else:
@@ -44,22 +116,18 @@ async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg(
                 need_summary = True
             else:
                 try:
-                    # 支持传入 -1, -2 等，也支持传入 1, 2
                     val = int(arg)
                     offset = val if val <= 0 else -val
                 except ValueError:
-                    pass # 忽略非数字非指令参数
+                    pass
 
-    # 2. 计算目标日期
     target_date = datetime.now() + timedelta(days=offset)
     date_str = target_date.strftime("%Y-%m-%d")
 
-    # --- 新增分支：搜索模式 ---
     if search_keyword:
         msg = NewsService.search_news(search_keyword, date_str)
         await news_cmd.finish(msg)
 
-    # 3. 构造 HTML 文件路径
     html_path = NEWS_ROOT / date_str / "html" / "当日汇总.html"
     
     if not html_path.exists():
@@ -68,14 +136,10 @@ async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg(
         else:
             await news_cmd.finish(f"虽然有 {date_str} 的记录，但找不到“当日汇总.html”文件呢。")
 
-    # 4. 开始渲染 PDF (如果只请求总结，其实可以跳过这步，但为了完整性还是发一下PDF作为凭证)
     await news_cmd.send(f"正在准备 {date_str} 的新闻汇总，请稍候... 📅")
     
-    # 发送 PDF
     try:
         pdf_bytes = await html_to_pdf(html_path)
-        
-        # 发送文件
         file_name = f"新闻汇总_{date_str}.pdf"
         file_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
         file_url = f"base64://{file_b64}"
@@ -91,7 +155,6 @@ async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg(
         logger.exception("新闻 PDF 生成或发送失败")
         await news_cmd.send(f"PDF 生成失败了 ({e})，不过 Miku 试试能不能直接发总结...")
 
-    # 5. 如果需要总结，调用 AI
     if need_summary:
         await news_cmd.send("Miku 正在阅读新闻并整理重点，稍等哦... ✨")
         summary_text = await NewsService.generate_summary(date_str)
@@ -100,7 +163,6 @@ async def handle_news(bot: Bot, event: MessageEvent, args: Message = CommandArg(
 # --- 补充交互：回复文件触发总结 ---
 
 async def is_reply_summary(event: MessageEvent) -> bool:
-    """检查是否是回复消息，且内容包含关键词"""
     if not event.reply:
         return False
     text = event.get_plaintext().strip()
@@ -112,27 +174,10 @@ summary_reply = on_message(rule=is_reply_summary, priority=5, block=True)
 async def handle_summary_reply(event: MessageEvent, bot: Bot):
     if not event.reply:
         return
-
-    # 尝试从回复的消息中提取文件名
-    # 注意：OneBot V11 的 reply 字段可能不包含 file 字段，取决于实现
-    # 这里我们尝试解析原始消息内容中的文件名，或者依赖上下文
-    # 为了简化，我们假设用户回复的是 bot 发送的 PDF，且我们只能根据日期推断
-    # 既然是回复，通常意味着关注的是"那一份"新闻
-    
-    # 策略：
-    # 1. 尝试解析回复消息中的文件名 (如果有)
-    # 2. 如果没有，默认假设是对“今天”或“最近一次发送”的新闻进行总结
-    # 3. 这里我们做一个简单的假设：用户回复这个指令，就是想看今天的新闻总结（或者让 Miku 猜）
-    
-    # 但更严谨的做法是：检查 reply 的 sender_id 是否是 bot 自己
     if str(event.reply.sender.user_id) != str(event.self_id):
-        return # 不是回复机器人的消息，忽略
+        return 
 
-    # 尝试匹配文件名中的日期 (如果回复的是文件消息，raw_message 可能会包含文件名)
-    # 格式: News_Summary_2026-01-07.pdf
-    target_date = datetime.now().strftime("%Y-%m-%d") # 默认今天
-    
-    # 检查回复内容是否有文件名特征
+    target_date = datetime.now().strftime("%Y-%m-%d") 
     reply_raw = str(event.reply.message)
     match = re.search(r"新闻汇总_(\d{4}-\d{2}-\d{2})", reply_raw)
     if match:
@@ -142,28 +187,67 @@ async def handle_summary_reply(event: MessageEvent, bot: Bot):
     summary_text = await NewsService.generate_summary(target_date)
     await summary_reply.finish(summary_text)
 
-
 async def html_to_pdf(html_path: Path) -> bytes:
-    """使用 Playwright 渲染 HTML 为 PDF"""
     async with get_new_page() as page:
-        # 构造 file:// URL
         file_url = f"file://{html_path.absolute()}"
-        
-        # 设置较大视口以确保图表等元素渲染正常
         await page.set_viewport_size({"width": 1280, "height": 720})
-        
-        # 访问页面并等待网络空闲
         await page.goto(file_url, wait_until="networkidle")
-        
-        # 导出 PDF (A4 格式，打印背景)
         return await page.pdf(
             format="A4",
             print_background=True,
-            margin={
-                "top": "1cm",
-                "bottom": "1cm",
-                "left": "1cm",
-                "right": "1cm"
-            }
+            margin={"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"}
         )
 
+# --- Scheduled Task ---
+async def broadcast_daily_news():
+    """每日新闻播报任务"""
+    targets = NewsSubscriberManager.get_all_targets()
+    if not targets:
+        logger.info("[News] No targets to push.")
+        return
+
+    logger.info(f"[News] Starting broadcast to {len(targets)} groups...")
+    
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        summary = await NewsService.generate_summary(date_str)
+    except Exception as e:
+        logger.error(f"[News] Failed to generate summary: {e}")
+        return
+
+    if not summary or (len(summary) < 50 and "失败" in summary):
+         logger.warning(f"[News] Summary generation might have failed: {summary}")
+         return
+
+    try:
+        if VoiceService:
+            logger.info(f"[News] Synthesizing speech (len={len(summary)})...")
+            voice_path = await VoiceService.synthesize(summary, lang="zh")
+            with open(voice_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            msg = f"[VOICE:base64://{b64}]"
+        else:
+            msg = f"【每日新闻】\n{summary}"
+    except Exception as e:
+        logger.error(f"[News] Voice synthesis failed: {e}")
+        msg = f"【每日新闻】\n{summary}"
+
+    try:
+        bot = get_bot()
+    except ValueError:
+        logger.warning("[News] No bot connected.")
+        return
+
+    for group_id in targets:
+        try:
+            await bot.send_group_msg(group_id=group_id, message=msg)
+        except Exception as e:
+            logger.error(f"[News] Failed to send to group {group_id}: {e}")
+
+# Init Scheduler
+try:
+    h, m = map(int, news_config.news_push_time.split(":"))
+    scheduler.add_job(broadcast_daily_news, "cron", hour=h, minute=m, id="news_daily")
+    logger.info(f"[News] Scheduled daily broadcast at {news_config.news_push_time}")
+except Exception as e:
+    logger.error(f"[News] Failed to schedule task: {e}")

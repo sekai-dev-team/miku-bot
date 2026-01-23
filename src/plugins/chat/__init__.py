@@ -10,10 +10,10 @@ from nonebot.permission import SUPERUSER
 from nonebot.params import ArgPlainText, CommandArg
 from nonebot_plugin_htmlrender import md_to_pic
 # plugin
-import asyncio, re, json
+import asyncio, re, json, base64
 from pathlib import Path
 from datetime import datetime
-from .config import Config as PluginConfig
+from .config import plugin_config as PLUGIN_CONFIG
 # from .ai import AI  <-- Removed
 from src.common.ai_service import AIService # <-- Added
 from src.common.tool_registry import tool_registry
@@ -23,8 +23,8 @@ from .sys_monitor import SystemMonitor
 from .utils import get_event_info, is_friend, parse_dsml_tool_calls
 from .msg_context import SimulatedGroupMsgListener
 from .help_menu import get_main_menu_text, get_plugin_help_text
+from src.common.config_manager import config_manager
 # constant
-PLUGIN_CONFIG = get_plugin_config(PluginConfig)
 LISTENER = SimulatedGroupMsgListener()
 
 # hook
@@ -49,56 +49,9 @@ def get_resource_path(filename: str) -> Path:
     current_dir = Path(__file__).parent
     return current_dir.parent.parent / "common" / "resources" / filename
 
-PROMPT_CONTENT = load_resource("miku_prompt.md")
 MANUAL_CONTENT = load_resource("manual.md")
 
 # --- Resource Management Commands ---
-
-# 1. Prompt Management
-cmd_prompt = on_command("aiprompt", aliases={"prompt"}, permission=SUPERUSER, priority=5, block=True)
-
-@cmd_prompt.handle()
-async def _(matcher: Matcher):
-    msg = (
-        "Miku 提示词管理\n"
-        "------------------\n"
-        "当前文件: miku_prompt.md\n"
-        "1. 修改提示词\n"
-        "2. 查看当前提示词\n"
-        "0. 退出交互"
-    )
-    await matcher.send(msg)
-
-@cmd_prompt.got("action")
-async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action")):
-    if action == "0":
-        await matcher.finish("操作已取消。")
-    elif action == "2":
-        path = get_resource_path("miku_prompt.md")
-        if path.exists():
-            content = path.read_text(encoding="utf-8")
-            await matcher.finish(content)
-        else:
-            await matcher.finish("文件不存在！")
-    elif action == "1":
-        await matcher.send("请输入新的提示词：")
-    else:
-        await matcher.reject("指令无法识别，请重新输入（0/1/2）：")
-
-@cmd_prompt.got("content")
-async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action"), content: str = ArgPlainText("content")):
-    if action == "1":
-        path = get_resource_path("miku_prompt.md")
-        try:
-            path.write_text(content, encoding="utf-8")
-            global PROMPT_CONTENT
-            PROMPT_CONTENT = content
-            await matcher.finish("提示词更新成功！Miku 已经记住了新的设定~")
-        except FinishedException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to write prompt: {e}")
-            await matcher.finish(f"写入失败：{e}")
 
 # 2. Manual Management
 cmd_manual = on_command("mymanual", aliases={"manual", "guide"}, permission=SUPERUSER, priority=5, block=True)
@@ -170,8 +123,30 @@ async def _(event: GroupMessageEvent):
     
     try:
         # 构造请求消息列表
-        # 1. System Prompt (Loaded from file) + Context Injection
-        current_sys_prompt = PROMPT_CONTENT + f"\n\n[Context]\nCurrent Group ID: {group_id}"
+        # 1. System Prompt (Loaded from Config & Inject Voice Info)
+        prompts_config = config_manager.get_config("prompts")
+        current_sys_prompt = prompts_config.get("chat_system", "You are Miku.")
+
+        # Inject Voice Identity
+        try:
+            from src.plugins.voice_module.config import config as voice_config
+            # Try to extract a meaningful name or just show the reference text
+            # Assuming ref_audio_path is like "/app/ref_audio/mika_zh.wav"
+            voice_name = Path(voice_config.ref_audio_path).stem  # e.g., "mika_zh"
+            
+            voice_injection = (
+                f"\n\n## 当前状态感知 (System Awareness)\n"
+                f"*   **当前使用音色 ID**: `{voice_name}`\n"
+                f"*   **音色参考台词**: \"{voice_config.ref_text}\"\n"
+                f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。"
+            )
+            current_sys_prompt += voice_injection
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to inject voice info: {e}")
+
+        current_sys_prompt += f"\n\n[Context]\nCurrent Group ID: {group_id}"
         messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": current_sys_prompt}]
         # 2. Context History
         messages.extend(context)
@@ -189,14 +164,18 @@ async def _(event: GroupMessageEvent):
                 sentence = sb.append(char)
                 if sentence:
                     # 全面去除行首的 Miku: 前缀，增加人味
-                    miku_prefix = r"^(Miku[:：])+"
-                    sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE).strip()
+                    # 使用 MULTILINE 模式确保处理多行文本（兜底 SentenceBuffer 可能漏切的情况）
+                    miku_prefix = r"^\s*Miku[:：]+\s*"
+                    sentence = re.sub(miku_prefix, "", sentence, flags=re.IGNORECASE | re.MULTILINE).strip()
                     
                     if sentence:
-                        await ai.send(sentence)
-                        group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sentence}")
-                        LISTENER.listen(group_msg)
-                        await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
+                        # 二次切分：防止因代码块标记等原因导致的大段文本未切分
+                        sub_lines = [s.strip() for s in sentence.split('\n') if s.strip()]
+                        for sub_line in sub_lines:
+                            await ai.send(sub_line)
+                            group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sub_line}")
+                            LISTENER.listen(group_msg)
+                            await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
 
         # Check for DSML (DeepSeek XML format)
         dsml_tool_calls = []
@@ -232,6 +211,47 @@ async def _(event: GroupMessageEvent):
                     args = json.loads(args_str)
                     # 执行工具
                     tool_res = await tool_registry.dispatch(func_name, args)
+
+                    # Helper to process voice tags
+                    async def process_voice_tag(tag_content: str) -> str:
+                        voice_path = tag_content[7:-1]
+                        try:
+                            # Windows path fix: file:///C:/...
+                            path_obj = Path(voice_path)
+                            if path_obj.exists():
+                                # Use base64 to avoid filesystem sharing issues between containers
+                                with open(path_obj, "rb") as f:
+                                    voice_data = f.read()
+                                    base64_str = base64.b64encode(voice_data).decode()
+                                await ai.send(MessageSegment.record(file=f"base64://{base64_str}"))
+                                return "已发送语音。"
+                            else:
+                                return "语音文件生成失败 (文件不存在)。"
+                        except Exception as e:
+                            logger.error(f"Failed to send voice: {e}")
+                            return f"语音生成成功但发送失败: {e}"
+
+                    history_content = ""
+                    import inspect
+                    if inspect.isasyncgen(tool_res):
+                        # 流式工具结果处理
+                        async for chunk in tool_res:
+                            chunk_str = str(chunk)
+                            if chunk_str.startswith("[VOICE:"):
+                                res_msg = await process_voice_tag(chunk_str)
+                                history_content += res_msg + "\n"
+                            else:
+                                history_content += chunk_str
+                    else:
+                        # 普通工具结果处理
+                        tool_res_str = str(tool_res)
+                        if tool_res_str.startswith("[VOICE:"):
+                            history_content = await process_voice_tag(tool_res_str)
+                        else:
+                            history_content = tool_res_str
+
+                    tool_res = history_content.strip()
+
                 except Exception as e:
                     tool_res = f"Error executing tool: {e}"
                 
@@ -285,6 +305,7 @@ async def _(bot: Bot, event: MessageEvent):  # 支持私聊
     balance = await SystemMonitor.balance() # 记得 await 异步方法
     mem = SystemMonitor.memory()
     cpu = SystemMonitor.cpu()
+    vram = SystemMonitor.vram()
     
     # 获取群组信息
     try:
@@ -300,12 +321,16 @@ async def _(bot: Bot, event: MessageEvent):  # 支持私聊
          group_stat += f"\n活跃上下文: {len(active_groups)}\n" + "\n".join(active_groups)
     
     # 拼接消息
+    # 如果 vram 存在，则加入到消息中
+    vram_section = f"{vram}\n" if vram else ""
+
     message = (
         f"Miku 状态报告\n"
         f"------------------\n"
         f"{uptime}\n"
         f"{cpu}\n"
         f"{mem}\n"
+        f"{vram_section}"
         f"------------------\n"
         f"{balance}\n"
         f"------------------\n"
@@ -403,3 +428,23 @@ async def _(bot: Bot, event: GroupRequestEvent):
             await bot.send_private_msg(
                 user_id="可以填写管理员（非bot）的qq，或者任意你希望接受bot消息的用户", message=f"({user_id})加群失败。\n原因：密码错误。"
             )
+
+# --- Configuration Management ---
+from src.common.config_manager import config_manager
+reload_cmd = on_command("reload_config", aliases={"刷新配置", "重载配置"}, permission=SUPERUSER, priority=1, block=True)
+
+@reload_cmd.handle()
+async def _(matcher: Matcher):
+    try:
+        config_manager.reload()
+        # Trigger voice config reload if module is active
+        try:
+            from src.plugins.voice_module.config import config as voice_config
+            voice_config.load_from_file()
+        except ImportError:
+            pass
+            
+        await matcher.finish("配置已刷新！(Plugin Configs reloaded from YAML)")
+    except Exception as e:
+        logger.error(f"Failed to reload config: {e}")
+        await matcher.finish(f"配置刷新失败：{e}")

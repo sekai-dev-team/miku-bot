@@ -32,6 +32,7 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
 | **Stock** | `get_stock_info` | 查询特定股票代码的实时行情 |
 | **Stock** | `get_market_overview` | 获取当日股市概览与涨幅榜 |
 | **History** | `get_random_history` | 随机调取一条群聊黑历史记录 |
+| **Voice** | `speak_text` | 将文本转换为语音并发送 (支持多语言) |
 
 ### 2. 新闻聚合模块 (News Plugin)
 提供每日新闻汇总 PDF 及 AI 摘要功能。
@@ -87,6 +88,20 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
             *   `/stock review`: 读取 `当日最新大盘情况` 并直接发送文本。
             *   `/stock report`: 读取 `自选股情况以及分析、建议` 并以文件形式上传。
         *   **AI 工具**: 注册 `get_stock_info` 工具。当用户问“宁德时代股价”时，AI 自动调用此函数获取 JSON 数据，再转换成人话回答。
+
+### 6. 语音互动 (Voice Module)
+基于 GPT-SoVITS 提供高质量的语音合成服务。
+
+*   **入口**: `src/plugins/voice_module`
+*   **工作流**:
+    1.  **AI 决策**: 用户请求朗读或 AI 觉得适合语音回复时，调用 `speak_text` 工具。
+    2.  **API 调用**: 插件向 `tts-infer` 容器发送合成请求。
+    3.  **文本切分**: 长文本会被切分为短句（默认 50 字），逐句流式合成，减少等待时间。
+    4.  **音频处理**: 接收 WAV/MP3 音频流，并保存为临时文件。
+    5.  **消息发送**: 通过 OneBot 发送语音消息 `[VOICE:path]`。
+    6.  **管理功能**:
+        *   **配置**: `/vconf` 修改语速、切分长度等参数。
+        *   **模型**: `/switch_model` 动态切换 GPT-SoVITS 模型权重。
 
 ---
 
