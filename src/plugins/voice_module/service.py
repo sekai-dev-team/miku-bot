@@ -121,6 +121,33 @@ class VoiceService:
             return resp.text
 
     @staticmethod
+    async def set_model(model_name: str = None, gpt_path: str = None, sovits_path: str = None):
+        """
+        综合切换模型。
+        
+        Args:
+            model_name (str, optional): 模型名称（自动匹配同名 .ckpt 和 .pth）
+            gpt_path (str, optional): GPT 权重路径
+            sovits_path (str, optional): SoVITS 权重路径
+        """
+        url = config.sovits_api_url
+        params = {}
+        if model_name:
+            params["model_name"] = model_name
+        if gpt_path:
+            params["gpt_path"] = gpt_path
+        if sovits_path:
+            params["sovits_path"] = sovits_path
+            
+        if not params:
+             raise ValueError("Must provide model_name OR (gpt_path AND sovits_path)")
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{url}/set_model", params=params, timeout=20.0)
+            resp.raise_for_status()
+            return resp.text
+
+    @staticmethod
     def update_config(key: str, value: str):
         """动态更新配置 (暂存内存)"""
         if hasattr(config, key):

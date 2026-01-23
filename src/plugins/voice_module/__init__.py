@@ -67,3 +67,54 @@ async def _(matcher: Matcher, args: Message = CommandArg()):
         await matcher.finish(f"SoVITS模型切换成功: {msg}")
     except Exception as e:
         await matcher.finish(f"切换失败: {e}")
+
+
+cmd_switch_model = on_command("switch_model", aliases={"切换模型", "load_model"}, permission=SUPERUSER, priority=5, block=True)
+
+@cmd_switch_model.handle()
+async def _(matcher: Matcher, args: Message = CommandArg()):
+    """
+    切换模型
+    用法: 
+    1. /switch_model <model_name> (自动匹配同名文件)
+    2. /switch_model -g <gpt_path> -s <sovits_path> (指定路径)
+    """
+    args_str = args.extract_plain_text().strip()
+    if not args_str:
+        await matcher.finish("用法: /switch_model <model_name> 或 /switch_model -g <gpt_path> -s <sovits_path>")
+    
+    # 简单的参数解析
+    import shlex
+    
+    try:
+        # split args
+        arg_list = shlex.split(args_str)
+        
+        gpt_path = None
+        sovits_path = None
+        model_name = None
+
+        if "-g" in arg_list and "-s" in arg_list:
+            try:
+                g_index = arg_list.index("-g")
+                gpt_path = arg_list[g_index + 1]
+                s_index = arg_list.index("-s")
+                sovits_path = arg_list[s_index + 1]
+            except IndexError:
+                await matcher.finish("参数解析错误：-g 和 -s 后必须紧跟路径")
+        else:
+             # Treat the whole first argument as model name if no flags found
+             if len(arg_list) > 0:
+                 model_name = arg_list[0]
+        
+        if model_name:
+            msg = await VoiceService.set_model(model_name=model_name)
+            await matcher.finish(f"模型切换成功: {msg}")
+        elif gpt_path and sovits_path:
+            msg = await VoiceService.set_model(gpt_path=gpt_path, sovits_path=sovits_path)
+            await matcher.finish(f"模型切换成功: {msg}")
+        else:
+            await matcher.finish("参数不足。请提供模型名称或同时提供 GPT 和 SoVITS 路径。")
+             
+    except Exception as e:
+        await matcher.finish(f"操作失败: {e}")
