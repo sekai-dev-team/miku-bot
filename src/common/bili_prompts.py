@@ -1,6 +1,6 @@
 # prompts.py
 # 存储 Bilibili 笔记生成的提示词模板
-# 注意：现在主要通过 src/common/resources/custom_bili_prompts.json 进行管理
+# 注意：现在主要通过 src/common/config_manager.py (plugin_configs.yaml) 进行管理
 # 这里的 PROMPTS 仅作为代码层面的 fallback 或定义一些不可变的别名结构
 
 PROMPTS = {}

@@ -23,6 +23,7 @@ from .sys_monitor import SystemMonitor
 from .utils import get_event_info, is_friend, parse_dsml_tool_calls
 from .msg_context import SimulatedGroupMsgListener
 from .help_menu import get_main_menu_text, get_plugin_help_text
+from src.common.config_manager import config_manager
 # constant
 LISTENER = SimulatedGroupMsgListener()
 
@@ -48,56 +49,9 @@ def get_resource_path(filename: str) -> Path:
     current_dir = Path(__file__).parent
     return current_dir.parent.parent / "common" / "resources" / filename
 
-PROMPT_CONTENT = load_resource("miku_prompt.md")
 MANUAL_CONTENT = load_resource("manual.md")
 
 # --- Resource Management Commands ---
-
-# 1. Prompt Management
-cmd_prompt = on_command("aiprompt", aliases={"prompt"}, permission=SUPERUSER, priority=5, block=True)
-
-@cmd_prompt.handle()
-async def _(matcher: Matcher):
-    msg = (
-        "Miku 提示词管理\n"
-        "------------------\n"
-        "当前文件: miku_prompt.md\n"
-        "1. 修改提示词\n"
-        "2. 查看当前提示词\n"
-        "0. 退出交互"
-    )
-    await matcher.send(msg)
-
-@cmd_prompt.got("action")
-async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action")):
-    if action == "0":
-        await matcher.finish("操作已取消。")
-    elif action == "2":
-        path = get_resource_path("miku_prompt.md")
-        if path.exists():
-            content = path.read_text(encoding="utf-8")
-            await matcher.finish(content)
-        else:
-            await matcher.finish("文件不存在！")
-    elif action == "1":
-        await matcher.send("请输入新的提示词：")
-    else:
-        await matcher.reject("指令无法识别，请重新输入（0/1/2）：")
-
-@cmd_prompt.got("content")
-async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("action"), content: str = ArgPlainText("content")):
-    if action == "1":
-        path = get_resource_path("miku_prompt.md")
-        try:
-            path.write_text(content, encoding="utf-8")
-            global PROMPT_CONTENT
-            PROMPT_CONTENT = content
-            await matcher.finish("提示词更新成功！Miku 已经记住了新的设定~")
-        except FinishedException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to write prompt: {e}")
-            await matcher.finish(f"写入失败：{e}")
 
 # 2. Manual Management
 cmd_manual = on_command("mymanual", aliases={"manual", "guide"}, permission=SUPERUSER, priority=5, block=True)
@@ -169,8 +123,30 @@ async def _(event: GroupMessageEvent):
     
     try:
         # 构造请求消息列表
-        # 1. System Prompt (Loaded from file) + Context Injection
-        current_sys_prompt = PROMPT_CONTENT + f"\n\n[Context]\nCurrent Group ID: {group_id}"
+        # 1. System Prompt (Loaded from Config & Inject Voice Info)
+        prompts_config = config_manager.get_config("prompts")
+        current_sys_prompt = prompts_config.get("chat_system", "You are Miku.")
+
+        # Inject Voice Identity
+        try:
+            from src.plugins.voice_module.config import config as voice_config
+            # Try to extract a meaningful name or just show the reference text
+            # Assuming ref_audio_path is like "/app/ref_audio/mika_zh.wav"
+            voice_name = Path(voice_config.ref_audio_path).stem  # e.g., "mika_zh"
+            
+            voice_injection = (
+                f"\n\n## 当前状态感知 (System Awareness)\n"
+                f"*   **当前使用音色 ID**: `{voice_name}`\n"
+                f"*   **音色参考台词**: \"{voice_config.ref_text}\"\n"
+                f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。"
+            )
+            current_sys_prompt += voice_injection
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to inject voice info: {e}")
+
+        current_sys_prompt += f"\n\n[Context]\nCurrent Group ID: {group_id}"
         messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": current_sys_prompt}]
         # 2. Context History
         messages.extend(context)
