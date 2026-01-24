@@ -36,7 +36,7 @@ class VoiceService:
             "seed": -1,
             "media_type": "wav",
             "streaming_mode": False,
-            "parallel_infer": True,
+            "parallel_infer": kwargs.get("parallel_infer", config.parallel_infer),
             "repetition_penalty": 1.35
         }
         
