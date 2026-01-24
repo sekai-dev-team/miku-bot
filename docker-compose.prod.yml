@@ -5,6 +5,13 @@ services:
       dockerfile: Dockerfile
     image: 007hikari/miku-bot:latest
     container_name: miku-bot
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     ports:
     - 9999:9999
     restart: unless-stopped

@@ -10,8 +10,8 @@ class AIService:
         """单例模式获取 Client，避免重复创建"""
         if cls._client is None:
             cls._client = AsyncOpenAI(
-                api_key=GLOBAL_AI_CONFIG.API_KEY,
-                base_url=GLOBAL_AI_CONFIG.BASE_URL
+                api_key=GLOBAL_AI_CONFIG.api_key,
+                base_url=GLOBAL_AI_CONFIG.base_url
             )
         return cls._client
 
@@ -28,16 +28,16 @@ class AIService:
         client = cls.get_client()
         
         # 默认使用配置，但允许覆盖
-        use_stream = GLOBAL_AI_CONFIG.STREAM if stream is None else stream
+        use_stream = GLOBAL_AI_CONFIG.stream if stream is None else stream
 
         # 构造参数字典
         kwargs = {
-            "model": GLOBAL_AI_CONFIG.CHAT_MODEL,
+            "model": GLOBAL_AI_CONFIG.chat_model,
             "messages": messages,
-            "frequency_penalty": GLOBAL_AI_CONFIG.FREQUENCY_PENALTY,
-            "presence_penalty": GLOBAL_AI_CONFIG.PRESENCE_PENALTY,
-            "temperature": GLOBAL_AI_CONFIG.TEMPERATURE,
-            "max_tokens": GLOBAL_AI_CONFIG.MAX_TOKENS,
+            "frequency_penalty": GLOBAL_AI_CONFIG.frequency_penalty,
+            "presence_penalty": GLOBAL_AI_CONFIG.presence_penalty,
+            "temperature": GLOBAL_AI_CONFIG.temperature,
+            "max_tokens": GLOBAL_AI_CONFIG.max_tokens,
             "stream": use_stream
         }
         
