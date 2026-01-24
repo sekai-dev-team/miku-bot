@@ -110,11 +110,11 @@ class SystemMonitor:
     @classmethod
     async def balance(cls) -> str:
         """异步获取余额信息"""
-        if not GLOBAL_AI_CONFIG.API_KEY:
+        if not GLOBAL_AI_CONFIG.api_key:
             return "API: 未配置 Key"
 
         # 使用全局配置的 BASE_URL
-        base_url = GLOBAL_AI_CONFIG.BASE_URL
+        base_url = GLOBAL_AI_CONFIG.base_url
         if base_url.endswith("/"):
              balance_url = f"{base_url}user/balance"
         else:
@@ -122,7 +122,7 @@ class SystemMonitor:
 
         headers = {
             'Accept': 'application/json',
-            'Authorization': f'Bearer {GLOBAL_AI_CONFIG.API_KEY}'
+            'Authorization': f'Bearer {GLOBAL_AI_CONFIG.api_key}'
         }
         
         try:

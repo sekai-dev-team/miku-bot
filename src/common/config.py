@@ -5,31 +5,31 @@ class GlobalAIConfig(BaseModel):
     """
     全局 AI 配置，供所有插件共享
     """
-    API_KEY: str = ""
-    BASE_URL: str = "https://api.deepseek.com/"
-    CHAT_MODEL: str = "deepseek-chat"
-    CODE_MODEL: str = "deepseek-coder"
+    api_key: str = ""
+    base_url: str = "https://api.deepseek.com/"
+    chat_model: str = "deepseek-chat"
+    code_model: str = "deepseek-coder"
     
     # 全局默认参数
-    FREQUENCY_PENALTY: float = 0
-    PRESENCE_PENALTY: float = 0
-    TEMPERATURE: float = 1.1
-    MAX_TOKENS: int = 1024
-    STREAM: bool = True
+    frequency_penalty: float = 0
+    presence_penalty: float = 0
+    temperature: float = 1.1
+    max_tokens: int = 1024
+    stream: bool = True
 
-    @field_validator("FREQUENCY_PENALTY")
+    @field_validator("frequency_penalty")
     def check_frequency_penalty(cls, value: float) -> float:
         if -2 <= value <= 2:
             return value
         raise ValueError("frequency penalty must between [-2, 2]")
     
-    @field_validator("PRESENCE_PENALTY")
+    @field_validator("presence_penalty")
     def check_presence_penalty(cls, value: float) -> float:
         if -2 <= value <= 2:
             return value
         raise ValueError("presence penalty must between [-2, 2]")
 
-    @field_validator("TEMPERATURE")
+    @field_validator("temperature")
     def check_temp(cls, value: float) -> float:
         if 0 <= value <= 2:
             return value
