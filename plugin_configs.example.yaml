@@ -62,6 +62,16 @@ voice:
   text_split_method: "cut0"
   max_segment_length: 50
   parallel_infer: false
+  # --- 高级参数 ---
+  batch_size: 1             # 批处理大小
+  batch_threshold: 0.75     # 批处理阈值
+  split_bucket: true        # 是否分桶
+  fragment_interval: 0.3    # 分段间隔
+  seed: -1                  # 随机种子，-1 为随机
+  media_type: "wav"         # 输出媒体类型
+  streaming_mode: false     # 是否开启流式模式
+  repetition_penalty: 1.35  # 重复惩罚系数
+  tts_timeout: 120.0        # 请求超时时间(秒)
 
 prompts:
   chat_system: |

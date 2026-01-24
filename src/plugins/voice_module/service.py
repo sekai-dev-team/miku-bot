@@ -28,23 +28,23 @@ class VoiceService:
             "top_p": kwargs.get("top_p", config.top_p),
             "temperature": kwargs.get("temperature", config.temperature),
             "text_split_method": kwargs.get("split", config.text_split_method),
-            "batch_size": 1,
-            "batch_threshold": 0.75,
-            "split_bucket": True,
+            "batch_size": kwargs.get("batch_size", config.batch_size),
+            "batch_threshold": kwargs.get("batch_threshold", config.batch_threshold),
+            "split_bucket": kwargs.get("split_bucket", config.split_bucket),
             "speed_factor": kwargs.get("speed", config.speed_factor),
-            "fragment_interval": 0.3,
-            "seed": -1,
-            "media_type": "wav",
-            "streaming_mode": False,
-            "parallel_infer": True,
-            "repetition_penalty": 1.35
+            "fragment_interval": kwargs.get("fragment_interval", config.fragment_interval),
+            "seed": kwargs.get("seed", config.seed),
+            "media_type": kwargs.get("media_type", config.media_type),
+            "streaming_mode": kwargs.get("streaming_mode", config.streaming_mode),
+            "parallel_infer": kwargs.get("parallel_infer", config.parallel_infer),
+            "repetition_penalty": kwargs.get("repetition_penalty", config.repetition_penalty)
         }
         
         try:
             async with httpx.AsyncClient() as client:
                 # 优先尝试 POST (功能更全)
                 # 增加超时时间，因为 TTS 可能较慢
-                resp = await client.post(f"{url}/tts", json=payload, timeout=120.0)
+                resp = await client.post(f"{url}/tts", json=payload, timeout=config.tts_timeout)
                 
                 # 如果 POST 失败 (405 Method Not Allowed)，尝试 GET
                 if resp.status_code == 405:
@@ -59,7 +59,7 @@ class VoiceService:
                         "media_type": payload["media_type"]
                         # 注意：GET 模式下通常无法传递复杂的推理参数 (如 speed_factor, top_k 等)，视服务端实现而定
                     }
-                    resp = await client.get(f"{url}/tts", params=params, timeout=120.0)
+                    resp = await client.get(f"{url}/tts", params=params, timeout=config.tts_timeout)
 
                 resp.raise_for_status()
                 

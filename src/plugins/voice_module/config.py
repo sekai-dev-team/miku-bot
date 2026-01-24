@@ -23,6 +23,19 @@ class Config(BaseModel):
     text_split_method: str = "cut0"  # 默认不切分，由 Bot 控制短文本
     max_segment_length: int = 50
     parallel_infer: bool = False
+    
+    # 高级推理参数
+    batch_size: int = 1
+    batch_threshold: float = 0.75
+    split_bucket: bool = True
+    fragment_interval: float = 0.3
+    seed: int = -1
+    media_type: str = "wav"
+    streaming_mode: bool = False
+    repetition_penalty: float = 1.35
+    
+    # 网络参数
+    tts_timeout: float = 120.0
 
     def __init__(self, **data: Any):
         super().__init__(**data)
