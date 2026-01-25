@@ -14,10 +14,9 @@ class MemoryService:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(MemoryService, cls).__new__(cls)
-            cls._instance._init_memory()
         return cls._instance
 
-    async def _init_memory(self):
+    async def initialize(self):
         """Initialize connection to Mem0."""
         try:
             # --- DEBUG: Environment Probe ---
@@ -195,3 +194,10 @@ class MemoryService:
 
 # 单例导出
 memory_service = MemoryService()
+
+from nonebot import get_driver
+driver = get_driver()
+
+@driver.on_startup
+async def _():
+    await memory_service.initialize()

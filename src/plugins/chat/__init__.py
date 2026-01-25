@@ -207,6 +207,8 @@ async def _(matcher: Matcher, event: MessageEvent, args: Message = CommandArg())
             )
     except RuntimeError as e:
         await matcher.finish(f"记忆系统暂时不可用 (System Error): {e}")
+    except FinishedException:
+        raise
     except Exception as e:
         logger.error(f"Error in profile command: {e}")
         await matcher.finish(f"发生未知错误: {e}")
