@@ -72,8 +72,9 @@ class MemoryService:
                     "config": {
                         "api_key": GLOBAL_AI_CONFIG.api_key,
                         "model": GLOBAL_AI_CONFIG.chat_model,
-                        "temperature": 0.1,
+                        "base_url": GLOBAL_AI_CONFIG.base_url,  # Explicitly set base_url
                         "max_tokens": 1000,
+                        "temperature": 0.1,
                     },
                 },
                 "embedder": {
@@ -86,13 +87,16 @@ class MemoryService:
                     },
                 },
                 "custom_prompt": (
-                    "You are an expert memory manager. Extract key facts about the user from the conversation.\n"
-                    "CRITICAL RULES:\n"
-                    "1. RESOLVE PRONOUNS: You MUST use the conversation context to replace pronouns (it, this, that, the recipe) with specific nouns.\n"
-                    "   - BAD: 'User asked how to make it.'\n"
-                    "   - GOOD: 'User asked for the recipe of Matcha Basque Cake.'\n"
-                    "2. SELF-CONTAINED: Extracted memories must be fully understandable without context.\n"
-                    "3. IGNORE CHITCHAT: Do not save greetings ('Hello') or system acknowledgments."
+                    "你是一位专业的记忆管理专家。你的任务是从对话中提取关于用户的简洁、客观的事实（FACTS）。\n"
+                    "规则：\n"
+                    "1. 提取事实，而非聊天记录：不要保存对话本身。提取用户的喜好、行为、计划或询问的内容。\n"
+                    "   - 错误示范：'用户问Miku喜不喜欢可可。'\n"
+                    "   - 正确示范：'用户对Miku是否喜欢可可感兴趣。'\n"
+                    "   - 正确示范：'用户喜欢可可。' (如果语境暗示了这点)\n"
+                    "2. 第三人称：始终使用 'User' 作为主语。\n"
+                    "3. 指代消解：利用上下文将 '它'、'这个' 等代词替换为具体的名词。\n"
+                    "4. 忽略琐事：忽略问候（'你好'）、致谢（'谢谢'）或系统指令。\n"
+                    "5. 语言要求：提取出的记忆内容请使用**简体中文**。"
                 ),
             }
 

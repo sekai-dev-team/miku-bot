@@ -28,45 +28,40 @@ def get_event_info(event: OneBotMessageEvent) -> tuple[dict, SimulatedGroupMsg]:
 def parse_dsml_tool_calls(content: str) -> list[dict]:
     """
     解析 DeepSeek-V3/R1 的 <｜DSML｜function_calls> 格式
-    返回格式模拟 OpenAI Tool Call Object:
-    [
-        {
-            "id": "call_random_id",
-            "function": {
-                "name": "tool_name",
-                "arguments": "json_string_of_args"
-            },
-            "type": "function"
-        }
-    ]
+    使用更鲁棒的正则，兼容各种空白符、全半角竖线及属性顺序。
     """
     import re
     import uuid
 
     tool_calls = []
     
-    # 提取 function_calls 块
-    block_pattern = r"<[|｜]DSML[|｜]function_calls>(.*?)</[|｜]DSML[|｜]function_calls>"
-    block_match = re.search(block_pattern, content, re.DOTALL)
+    # 1. 提取最外层的 function_calls 块
+    # 匹配 <...DSML...function_calls...> ... </...DSML...function_calls...>
+    # 允许 | 或 ｜，允许前后空格
+    block_pattern = r"<\s*[|｜]\s*DSML\s*[|｜]\s*function_calls\s*>(.*?)<\s*/\s*[|｜]\s*DSML\s*[|｜]\s*function_calls\s*>"
+    block_match = re.search(block_pattern, content, re.DOTALL | re.IGNORECASE)
     
     if not block_match:
+        # 兜底：有时模型可能漏掉外层块直接输出 invoke，或者格式极度不规范
+        # 这里先只处理规范块，如果以后发现频繁漏块再增加兜底
         return []
     
     block_content = block_match.group(1)
     
-    # 提取 invoke
-    invoke_pattern = r"<[|｜]DSML[|｜]invoke name=\"(.*?)\">(.*?)</[|｜]DSML[|｜]invoke>"
-    invokes = re.finditer(invoke_pattern, block_content, re.DOTALL)
+    # 2. 提取内部的 invoke 块
+    # 匹配 <...DSML...invoke name="xxx" ...> ... </...DSML...invoke>
+    invoke_pattern = r"<\s*[|｜]\s*DSML\s*[|｜]\s*invoke\s+[^>]*?name\s*=\s*[\"'](.*?)[\"'][^>]*?>(.*?)<\s*/\s*[|｜]\s*DSML\s*[|｜]\s*invoke\s*>"
+    invokes = re.finditer(invoke_pattern, block_content, re.DOTALL | re.IGNORECASE)
     
     for invoke in invokes:
         tool_name = invoke.group(1)
         args_content = invoke.group(2)
         
         args = {}
-        # 提取 parameter
-        # 注意：这里假设 parameter 格式比较规范，如果有嵌套可能需要更复杂的解析
-        param_pattern = r"<[|｜]DSML[|｜]parameter name=\"(.*?)\"(?:.*?)>(.*?)</[|｜]DSML[|｜]parameter>"
-        params = re.finditer(param_pattern, args_content, re.DOTALL)
+        # 3. 提取 parameter
+        # 匹配 <...DSML...parameter name="xxx" ...>value</...DSML...parameter>
+        param_pattern = r"<\s*[|｜]\s*DSML\s*[|｜]\s*parameter\s+[^>]*?name\s*=\s*[\"'](.*?)[\"'][^>]*?>(.*?)<\s*/\s*[|｜]\s*DSML\s*[|｜]\s*parameter\s*>"
+        params = re.finditer(param_pattern, args_content, re.DOTALL | re.IGNORECASE)
         
         for param in params:
             key = param.group(1)

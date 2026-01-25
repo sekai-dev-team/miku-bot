@@ -297,7 +297,8 @@ async def _(event: GroupMessageEvent):
                 f"\n\n## 当前状态感知 (System Awareness)\n"
                 f"*   **当前使用音色 ID**: `{voice_name}`\n"
                 f"*   **音色参考台词**: \"{voice_config.ref_text}\"\n"
-                f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。"
+                f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。\n"
+                f"*   **语音使用频度**: 请根据情境灵活判断是否使用语音（`speak_text`），**不必**每句话都使用，保持自然的对话节奏。"
             )
             current_sys_prompt += voice_injection
         except ImportError:
@@ -305,7 +306,8 @@ async def _(event: GroupMessageEvent):
         except Exception as e:
             logger.warning(f"Failed to inject voice info: {e}")
 
-        current_sys_prompt += f"\n\n[Context]\nCurrent Group ID: {group_id}"
+        current_date = datetime.now().strftime("%Y-%m-%d %A")
+        current_sys_prompt += f"\n\n[Context]\nCurrent Date: {current_date}\nCurrent Group ID: {group_id}"
         
         # --- 构建消息列表 (Structured Messages) ---
         # 方案：严格区分 System / History / Current Query
@@ -382,14 +384,31 @@ async def _(event: GroupMessageEvent):
         if first_msg.tool_calls or dsml_tool_calls:
             # --- Tool Call Branch ---
             if dsml_tool_calls:
+                 # DSML Detected: Content might be mixed (Text + DSML)
+                 # We need to extract the text part to display it to the user
+                 full_content = first_msg.content or ""
+                 
+                 # Regex to find the DSML block (using the robust pattern)
+                 block_pattern = r"<\s*[|｜]\s*DSML\s*[|｜]\s*function_calls\s*>.*?<\s*/\s*[|｜]\s*DSML\s*[|｜]\s*function_calls\s*>"
+                 
+                 # Remove ALL DSML blocks to get pure text
+                 text_content = re.sub(block_pattern, "", full_content, flags=re.DOTALL).strip()
+                 
+                 if text_content:
+                     await process_text_segment(text_content)
+
                  # 手动构造 assistant 消息存入历史
                  messages.append({
                     "role": "assistant",
-                    "content": first_msg.content, 
+                    "content": full_content, 
                     "tool_calls": dsml_tool_calls
                  })
                  actual_tool_calls = dsml_tool_calls
             else:
+                 # Native Tool Calls (usually no content, but check just in case)
+                 if first_msg.content:
+                     await process_text_segment(first_msg.content)
+
                  messages.append(first_msg) 
                  actual_tool_calls = first_msg.tool_calls
             
@@ -473,7 +492,14 @@ async def _(event: GroupMessageEvent):
             # --- Direct Text Branch ---
             # 没有调用工具，直接处理文本
             if first_msg.content:
-                await process_text_segment(first_msg.content)
+                # Fallback: Even if parse_dsml_tool_calls failed, if we see DSML tags, strip them
+                clean_content = first_msg.content
+                if "<" in clean_content and "DSML" in clean_content:
+                    block_pattern = r"<\s*[|｜]\s*DSML\s*[|｜]\s*.*?/.*?[|｜]\s*DSML\s*[|｜]\s*.*?>"
+                    clean_content = re.sub(block_pattern, "", clean_content, flags=re.DOTALL | re.IGNORECASE).strip()
+                
+                if clean_content:
+                    await process_text_segment(clean_content)
 
         # 处理流结束后剩余的文本
         remain_text = sb.force_flush()
@@ -490,24 +516,22 @@ async def _(event: GroupMessageEvent):
         # --- Memory Storage (Asynchronous) ---
         if query_text and full_ai_response:
             # Construct context-rich interaction for better memory extraction
-            interaction_lines = []
+            # Pass list of messages to mem0 for better structural understanding
+            memory_messages = []
+            
             if context:
-                # Include up to 3 previous messages to provide context for pronoun resolution
-                # context elements are dicts: {'role': '...', 'content': '...'}
+                # Include up to 3 previous messages to provide context
                 for msg in context[-3:]:
-                    # msg['content'] already has "Name: text" for users
-                    interaction_lines.append(f"[{msg['role']}]: {msg['content']}")
+                    memory_messages.append({"role": msg['role'], "content": msg['content']})
             else:
-                # Fallback if no context
-                interaction_lines.append(f"[user]: {query_text}")
+                # Fallback
+                memory_messages.append({"role": "user", "content": query_text})
             
-            # Ensure the current response is added
-            interaction_lines.append(f"[assistant]: {full_ai_response}")
-            
-            interaction = "\n".join(interaction_lines)
+            # Append the current assistant response
+            memory_messages.append({"role": "assistant", "content": full_ai_response})
             
             # 后台异步执行记忆提取，不阻塞响应
-            asyncio.create_task(memory_service.add(interaction, user_id=str(sender_id), metadata={"group_id": group_id}))
+            asyncio.create_task(memory_service.add(memory_messages, user_id=str(sender_id), metadata={"group_id": group_id}))
 
     except Exception as e:
         logger.error(f"AI Chat Error: {e}")
