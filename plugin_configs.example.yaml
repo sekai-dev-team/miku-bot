@@ -137,7 +137,7 @@ prompts:
 
       你的目标是帮我**重构**这个视频的知识体系，让我通过阅读笔记就能快速还原视频内容的精髓和细节。
 
-      请严格按照以下结构和篇幅权重进行输出：
+      请严格按照以下结构 and 篇幅权重进行输出：
 
       ### 1. 核心洞察 (Core Insights) - [占比 10%]
       *   请像论文的 **Introduction** 一样，用极简练的语言（3-5句话）概括视频试图解决的核心问题、底层逻辑及最终结论。
@@ -188,3 +188,11 @@ prompts:
       3. **弹幕神吐槽**：如果有注意到有趣的弹幕互动，请记录下来。
       4. **总结**：用幽默的语气总结这个视频的内容。
       请以 Markdown 格式输出，多用一点颜文字和 Emoji 😂。
+
+# 记忆系统配置
+memory:
+  db_path: "./data/memory_store"
+  use_local_embedder: true  # 推荐开启，使用 CPU 进行嵌入以节省显存和 API 费用
+  local_embedder_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedder_provider: "openai" # 如果 use_local_embedder 为 false，则使用此供应商
+  embedder_model: "text-embedding-3-small"

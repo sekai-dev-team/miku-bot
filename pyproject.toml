@@ -22,6 +22,11 @@ dependencies = [
     "beautifulsoup4",
     "markdown",
     "pyyaml",
+    "nonebot-plugin-chatrecorder>=0.6.0",
+    "nonebot-plugin-orm[default]>=0.7.0",
+    "chromadb>=0.4.22",
+    "mem0ai>=0.0.12",
+    "pysqlite3-binary>=0.5.2",
 ]
 
 [project.optional-dependencies]

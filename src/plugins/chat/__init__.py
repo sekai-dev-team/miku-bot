@@ -24,6 +24,7 @@ from .utils import get_event_info, is_friend, parse_dsml_tool_calls
 from .msg_context import SimulatedGroupMsgListener
 from .help_menu import get_main_menu_text, get_plugin_help_text
 from src.common.config_manager import config_manager
+from src.common.memory_service import memory_service
 # constant
 LISTENER = SimulatedGroupMsgListener()
 
@@ -171,10 +172,26 @@ async def _(event: GroupMessageEvent):
     context = LISTENER.get_context(group_id)
     
     try:
+        # --- Memory Retrieval (Long-term Memory) ---
+        user_input = event.get_plaintext().strip()
+        # 移除 Miku 前缀以获得纯净的搜索词
+        query_text = re.sub(r"^(miku,|miku，)|([,，]miku)$", "", user_input, flags=re.IGNORECASE).strip()
+        
+        memories = await memory_service.search(query_text, user_id=str(sender_id))
+        memory_context = ""
+        if memories:
+            memory_list = [m["memory"] for m in memories]
+            memory_context = "\n\n## 长期记忆回顾 (Long-term Memories)\n" + "\n".join([f"* {m}" for m in memory_list])
+            logger.debug(f"Retrieved {len(memories)} memories for user {sender_id}")
+
         # 构造请求消息列表
-        # 1. System Prompt (Loaded from Config & Inject Voice Info)
+        # 1. System Prompt (Loaded from Config & Inject Voice Info & Memories)
         prompts_config = config_manager.get_config("prompts")
         current_sys_prompt = prompts_config.get("chat_system", "You are Miku.")
+        
+        # Inject Memories
+        if memory_context:
+            current_sys_prompt += memory_context
 
         # Inject Voice Identity
         try:
@@ -208,7 +225,10 @@ async def _(event: GroupMessageEvent):
         first_msg = response.choices[0].message
         
         # 准备一个内部函数来处理文本片段（复用流式和非流式逻辑）
+        full_ai_response = ""
         async def process_text_segment(text_seg: str):
+            nonlocal full_ai_response
+            full_ai_response += text_seg
             for char in text_seg:
                 sentence = sb.append(char)
                 if sentence:
@@ -334,9 +354,16 @@ async def _(event: GroupMessageEvent):
             remain_text = re.sub(miku_prefix, "", remain_text, flags=re.IGNORECASE).strip()
             
             if remain_text:
+                full_ai_response += remain_text
                 await ai.send(remain_text)
                 group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {remain_text}")
                 LISTENER.listen(group_msg)
+
+        # --- Memory Storage (Asynchronous) ---
+        if query_text and full_ai_response:
+            interaction = f"User: {query_text}\nAssistant: {full_ai_response}"
+            # 后台异步执行记忆提取，不阻塞响应
+            asyncio.create_task(memory_service.add(interaction, user_id=str(sender_id), metadata={"group_id": group_id}))
 
     except Exception as e:
         logger.error(f"AI Chat Error: {e}")
