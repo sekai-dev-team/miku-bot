@@ -163,51 +163,53 @@ async def _(matcher: Matcher, event: MessageEvent, args: Message = CommandArg())
     sub_cmd = parts[0].lower() if parts else "ls"
     payload = parts[1] if len(parts) > 1 else ""
     
-    if sub_cmd in ["ls", "list", "show", "查看"]:
-        memories = await memory_service.get_all(user_id=sender_id)
-        if not memories:
-            await matcher.finish("我好像还没记住关于你的什么特别的事情呢... 多和我聊聊天吧！")
-        
-        # Format list
-        msg_lines = ["📋 你的个人档案 (Memory Profile):", "-------------------"]
-        for mem in memories:
-            # mem0 structure: {'id': '...', 'memory': '...', ...}
-            m_id = mem.get("id", "N/A")
-            m_text = mem.get("memory", "")
-            # 只显示 ID 的前 8 位以保持简洁，如果需要完整 ID 操作，用户可能需要复制
-            # 但 mem0 的 ID 通常是 uuid，比较长。
-            # 为了方便复制，还是显示完整 ID 比较稳妥，或者显示前几位，删除时支持前缀匹配（如果支持的话）。
-            # 这里先显示完整 ID，为了排版美观，可以换行
-            msg_lines.append(f"🆔 {m_id}\n   {m_text}")
+    try:
+        if sub_cmd in ["ls", "list", "show", "查看"]:
+            memories = await memory_service.get_all(user_id=sender_id)
+            if not memories:
+                await matcher.finish("我好像还没记住关于你的什么特别的事情呢... 多和我聊聊天吧！")
             
-        await matcher.finish("\n".join(msg_lines))
-        
-    elif sub_cmd in ["add", "new", "新增"]:
-        if not payload:
-            await matcher.finish("要在你的档案里加什么呢？请使用 /profile add <内容>")
+            # Format list
+            msg_lines = ["📋 你的个人档案 (Memory Profile):", "-------------------"]
+            for mem in memories:
+                # mem0 structure: {'id': '...', 'memory': '...', ...}
+                m_id = mem.get("id", "N/A")
+                m_text = mem.get("memory", "")
+                msg_lines.append(f"🆔 {m_id}\n   {m_text}")
+                
+            await matcher.finish("\n".join(msg_lines))
             
-        await matcher.send("正在写入记忆...")
-        # Add memory
-        await memory_service.add(payload, user_id=sender_id, metadata={"source": "manual_add"})
-        await matcher.finish("已添加到记忆库！")
+        elif sub_cmd in ["add", "new", "新增"]:
+            if not payload:
+                await matcher.finish("要在你的档案里加什么呢？请使用 /profile add <内容>")
+                
+            await matcher.send("正在写入记忆...")
+            # Add memory
+            await memory_service.add(payload, user_id=sender_id, metadata={"source": "manual_add"})
+            await matcher.finish("已添加到记忆库！")
 
-    elif sub_cmd in ["rm", "del", "delete", "remove", "删除"]:
-        if not payload:
-             await matcher.finish("请指定要删除的记忆 ID。你可以先用 /profile ls 查看。")
-        
-        await matcher.send(f"正在删除记忆 [{payload}]...")
-        await memory_service.delete(payload)
-        await matcher.finish("删除完成。")
-        
-    else:
-        # Default help
-        await matcher.finish(
-            "🧠 Miku 记忆管理指令:\n"
-            "-------------------\n"
-            "/profile ls       - 查看你的所有记忆\n"
-            "/profile add <内容> - 手动添加一条关于你的记忆\n"
-            "/profile rm <ID>  - 删除指定 ID 的记忆"
-        )
+        elif sub_cmd in ["rm", "del", "delete", "remove", "删除"]:
+            if not payload:
+                 await matcher.finish("请指定要删除的记忆 ID。你可以先用 /profile ls 查看。")
+            
+            await matcher.send(f"正在删除记忆 [{payload}]...")
+            await memory_service.delete(payload)
+            await matcher.finish("删除完成。")
+            
+        else:
+            # Default help
+            await matcher.finish(
+                "🧠 Miku 记忆管理指令:\n"
+                "-------------------\n"
+                "/profile ls       - 查看你的所有记忆\n"
+                "/profile add <内容> - 手动添加一条关于你的记忆\n"
+                "/profile rm <ID>  - 删除指定 ID 的记忆"
+            )
+    except RuntimeError as e:
+        await matcher.finish(f"记忆系统暂时不可用 (System Error): {e}")
+    except Exception as e:
+        logger.error(f"Error in profile command: {e}")
+        await matcher.finish(f"发生未知错误: {e}")
 
 
 # * 1. 闲聊

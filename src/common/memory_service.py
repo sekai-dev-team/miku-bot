@@ -27,6 +27,7 @@ class MemoryService:
             logger.info(
                 f"DEBUG PROBE: sqlite3.sqlite_version = {sqlite3.sqlite_version}"
             )
+            logger.info(f"DEBUG PROBE: sqlite3 path = {getattr(sqlite3, '__file__', 'unknown')}")
             logger.info(
                 f"DEBUG PROBE: sys.modules['sqlite3'] = {sys.modules.get('sqlite3')}"
             )
@@ -110,7 +111,7 @@ class MemoryService:
         mem0 的 add 方法会调用 LLM 进行事实提取，建议在后台运行。
         """
         if not self._memory:
-            return
+            raise RuntimeError("MemoryService is not initialized.")
 
         try:
             loop = asyncio.get_event_loop()
