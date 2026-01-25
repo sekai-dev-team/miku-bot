@@ -166,6 +166,11 @@ async def _(matcher: Matcher, event: MessageEvent, args: Message = CommandArg())
     try:
         if sub_cmd in ["ls", "list", "show", "查看"]:
             memories = await memory_service.get_all(user_id=sender_id)
+            
+            # Fix: mem0 v1.1 returns {'results': [...]}
+            if isinstance(memories, dict) and "results" in memories:
+                memories = memories["results"]
+            
             if not memories:
                 await matcher.finish("我好像还没记住关于你的什么特别的事情呢... 多和我聊聊天吧！")
             
@@ -173,8 +178,17 @@ async def _(matcher: Matcher, event: MessageEvent, args: Message = CommandArg())
             msg_lines = ["📋 你的个人档案 (Memory Profile):", "-------------------"]
             for mem in memories:
                 # mem0 structure: {'id': '...', 'memory': '...', ...}
-                m_id = mem.get("id", "N/A")
-                m_text = mem.get("memory", "")
+                if isinstance(mem, str):
+                    m_id = "N/A"
+                    m_text = mem
+                elif isinstance(mem, dict):
+                    m_id = mem.get("id", "N/A")
+                    # Support both 'memory' (v1.0) and 'text' (v1.1) keys
+                    m_text = mem.get("memory") or mem.get("text") or ""
+                else:
+                    m_id = "Unknown"
+                    m_text = str(mem)
+
                 msg_lines.append(f"🆔 {m_id}\n   {m_text}")
                 
             await matcher.finish("\n".join(msg_lines))
@@ -242,11 +256,26 @@ async def _(event: GroupMessageEvent):
         query_text = re.sub(r"^(miku,|miku，)|([,，]miku)$", "", user_input, flags=re.IGNORECASE).strip()
         
         memories = await memory_service.search(query_text, user_id=str(sender_id))
+        
+        # Fix: mem0 v1.1 search returns {'results': [...]}
+        if isinstance(memories, dict) and "results" in memories:
+            memories = memories["results"]
+
         memory_context = ""
         if memories:
-            memory_list = [m["memory"] for m in memories]
-            memory_context = "\n\n## 长期记忆回顾 (Long-term Memories)\n" + "\n".join([f"* {m}" for m in memory_list])
-            logger.debug(f"Retrieved {len(memories)} memories for user {sender_id}")
+            # Support both 'memory' (v1.0) and 'text' (v1.1) keys
+            memory_list = []
+            for m in memories:
+                if isinstance(m, dict):
+                    content = m.get("memory") or m.get("text")
+                    if content:
+                        memory_list.append(content)
+                elif isinstance(m, str):
+                    memory_list.append(m)
+            
+            if memory_list:
+                memory_context = "\n\n## 长期记忆回顾 (Long-term Memories)\n" + "\n".join([f"* {m}" for m in memory_list])
+                logger.debug(f"Retrieved {len(memory_list)} memories for user {sender_id}")
 
         # 构造请求消息列表
         # 1. System Prompt (Loaded from Config & Inject Voice Info & Memories)
@@ -460,7 +489,23 @@ async def _(event: GroupMessageEvent):
 
         # --- Memory Storage (Asynchronous) ---
         if query_text and full_ai_response:
-            interaction = f"User: {query_text}\nAssistant: {full_ai_response}"
+            # Construct context-rich interaction for better memory extraction
+            interaction_lines = []
+            if context:
+                # Include up to 3 previous messages to provide context for pronoun resolution
+                # context elements are dicts: {'role': '...', 'content': '...'}
+                for msg in context[-3:]:
+                    # msg['content'] already has "Name: text" for users
+                    interaction_lines.append(f"[{msg['role']}]: {msg['content']}")
+            else:
+                # Fallback if no context
+                interaction_lines.append(f"[user]: {query_text}")
+            
+            # Ensure the current response is added
+            interaction_lines.append(f"[assistant]: {full_ai_response}")
+            
+            interaction = "\n".join(interaction_lines)
+            
             # 后台异步执行记忆提取，不阻塞响应
             asyncio.create_task(memory_service.add(interaction, user_id=str(sender_id), metadata={"group_id": group_id}))
 

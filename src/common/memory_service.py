@@ -1,4 +1,6 @@
 import asyncio
+import os
+import functools
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from mem0 import Memory
@@ -50,8 +52,12 @@ class MemoryService:
             db_path = config.get("db_path", "./data/memory_store")
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+            # 设置环境变量以适配 DeepSeek (绕过 mem0 配置限制)
+            if GLOBAL_AI_CONFIG.base_url:
+                os.environ["OPENAI_BASE_URL"] = GLOBAL_AI_CONFIG.base_url
+                logger.info(f"Set OPENAI_BASE_URL to {GLOBAL_AI_CONFIG.base_url}")
+
             # Mem0 配置
-            # 注意：由于 DeepSeek 兼容 OpenAI 接口，这里 LLM provider 使用 openai
             mem0_config = {
                 "version": "v1.1",
                 "vector_store": {
@@ -65,7 +71,6 @@ class MemoryService:
                     "provider": "openai",
                     "config": {
                         "api_key": GLOBAL_AI_CONFIG.api_key,
-                        "base_url": GLOBAL_AI_CONFIG.base_url,
                         "model": GLOBAL_AI_CONFIG.chat_model,
                         "temperature": 0.1,
                         "max_tokens": 1000,
@@ -80,11 +85,19 @@ class MemoryService:
                         "model": config.get("embedder_model", "text-embedding-3-small"),
                     },
                 },
+                "custom_prompt": (
+                    "You are an expert memory manager. Extract key facts about the user from the conversation.\n"
+                    "CRITICAL RULES:\n"
+                    "1. RESOLVE PRONOUNS: You MUST use the conversation context to replace pronouns (it, this, that, the recipe) with specific nouns.\n"
+                    "   - BAD: 'User asked how to make it.'\n"
+                    "   - GOOD: 'User asked for the recipe of Matcha Basque Cake.'\n"
+                    "2. SELF-CONTAINED: Extracted memories must be fully understandable without context.\n"
+                    "3. IGNORE CHITCHAT: Do not save greetings ('Hello') or system acknowledgments."
+                ),
             }
 
             # 内存节省模式：使用本地 CPU 嵌入模型
             if config.get("use_local_embedder", True):
-                # 默认开启本地嵌入以节省 API 开销和 VRAM (强制使用 CPU)
                 mem0_config["embedder"] = {
                     "provider": "huggingface",
                     "config": {
@@ -92,7 +105,6 @@ class MemoryService:
                             "local_embedder_model",
                             "sentence-transformers/all-MiniLM-L6-v2",
                         ),
-                        "device": "cpu",
                     },
                 }
 
@@ -107,22 +119,22 @@ class MemoryService:
     ):
         """
         异步添加记忆。
-        mem0 的 add 方法会调用 LLM 进行事实提取，建议在后台运行。
+        使用 functools.partial 确保参数以关键字形式传递，避免位置参数错误。
         """
         if not self._memory:
             raise RuntimeError("MemoryService is not initialized.")
 
         try:
             loop = asyncio.get_event_loop()
-            # mem0 目前主要是同步调用
-            result = await loop.run_in_executor(
-                None, self._memory.add, data, user_id, metadata
+            # 修正：使用 partial 传递关键字参数
+            func = functools.partial(
+                self._memory.add, messages=data, user_id=user_id, metadata=metadata
             )
+            result = await loop.run_in_executor(None, func)
 
             # 记录提取的事实
             if result and isinstance(result, list):
                 for res in result:
-                    # 某些版本的 mem0 返回格式不同，尝试安全获取 event 类型和内容
                     event = res.get("event")
                     content = res.get("data")
                     if event == "add":
@@ -146,15 +158,21 @@ class MemoryService:
 
         try:
             loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None, self._memory.search, query, user_id, limit
+            # 修正：使用 partial 传递关键字参数
+            func = functools.partial(
+                self._memory.search, query=query, user_id=user_id, limit=limit
             )
+            results = await loop.run_in_executor(None, func)
 
             if results:
-                memory_summaries = [r["memory"] for r in results]
-                logger.info(
-                    f"Memories Found for user {user_id} (query: '{query}'): {memory_summaries}"
-                )
+                # 尝试解析 results 结构，防止日志报错
+                try:
+                    memory_summaries = [r.get("memory") for r in results if isinstance(r, dict)]
+                    logger.info(
+                        f"Memories Found for user {user_id} (query: '{query}'): {memory_summaries}"
+                    )
+                except Exception:
+                    logger.info(f"Memories Found for user {user_id}: {len(results)} items")
             else:
                 logger.debug(
                     f"No relevant memories found for user {user_id} with query: '{query}'"
@@ -173,7 +191,9 @@ class MemoryService:
             return []
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self._memory.get_all, user_id)
+            # 修正：使用 partial 传递关键字参数，解决 "takes 1 positional argument but 2 were given"
+            func = functools.partial(self._memory.get_all, user_id=user_id)
+            return await loop.run_in_executor(None, func)
         except Exception as e:
             logger.error(f"Error getting all memories: {e}")
             return []
@@ -186,10 +206,13 @@ class MemoryService:
             return
         try:
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self._memory.delete, memory_id)
+            # 修正：mem0 v1.1 使用 memory_id 而不是 vector_id
+            func = functools.partial(self._memory.delete, memory_id=memory_id)
+            await loop.run_in_executor(None, func)
             logger.info(f"Memory deleted: {memory_id}")
         except Exception as e:
             logger.error(f"Error deleting memory {memory_id}: {e}")
+            raise e # 向上抛出异常，让前端能感知到失败
 
 
 # 单例导出

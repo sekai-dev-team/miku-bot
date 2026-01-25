@@ -28,6 +28,7 @@ dependencies = [
     "chromadb>=0.4.22",
     "mem0ai>=0.0.12",
     "pysqlite3-binary>=0.5.2",
+    "sentence-transformers>=2.2.2",
 ]
 
 [project.optional-dependencies]
