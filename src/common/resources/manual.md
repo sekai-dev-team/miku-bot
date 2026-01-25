@@ -65,7 +65,7 @@ Miku 会悄悄记下大家的名言（暴言）哦！(¬‿¬)
 
 ---
 
-# 7. 🎙️ 语音互动 (Voice)
+## 🎙️ 7. 语音互动 (Voice)
 Description: 文本朗读与语音回复
 
 🎙️ **语音互动功能**
@@ -92,6 +92,19 @@ Description: 文本朗读与语音回复
    - 例: `/switch_model mika_zh` (自动加载 mika_zh.ckpt 和 mika_zh.pth)
    - `/load_gpt <路径>`: 仅切换 GPT 权重
    - `/load_sovits <路径>`: 仅切换 SoVITS 权重
+
+---
+
+## 🧠 8. 记忆管理 (Memory)
+Miku 现在拥有长期记忆啦！我会记住你的喜好和我们之间的故事。你可以随时查看或整理我对你的印象。
+
+- **查看画像**: `/profile ls` (或 `list`)
+  - 列出所有 Miku 记下的关于你的记忆条目和对应的 ID。
+- **手动植入**: `/profile add <内容>`
+  - 告诉 Miku 一个关于你的新事实。
+  - 例：`/profile add 我喜欢喝半糖去冰的奶茶`
+- **遗忘记忆**: `/profile rm <ID>`
+  - 如果 Miku 记错了，或者你想让我忘掉某件事，可以使用此指令删除指定 ID 的记忆。
 
 ---
 

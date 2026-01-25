@@ -150,6 +150,66 @@ async def _(matcher: Matcher, event: MessageEvent, action: str = ArgPlainText("a
             await matcher.finish(f"更新失败：{e}")
 
 
+# 3.5. User Profile Management (Memory)
+cmd_profile = on_command("profile", aliases={"记忆", "用户画像"}, priority=5, block=True)
+
+@cmd_profile.handle()
+async def _(matcher: Matcher, event: MessageEvent, args: Message = CommandArg()):
+    sender_id = event.get_user_id()
+    
+    arg_text = args.extract_plain_text().strip()
+    parts = arg_text.split(maxsplit=1)
+    
+    sub_cmd = parts[0].lower() if parts else "ls"
+    payload = parts[1] if len(parts) > 1 else ""
+    
+    if sub_cmd in ["ls", "list", "show", "查看"]:
+        memories = await memory_service.get_all(user_id=sender_id)
+        if not memories:
+            await matcher.finish("我好像还没记住关于你的什么特别的事情呢... 多和我聊聊天吧！")
+        
+        # Format list
+        msg_lines = ["📋 你的个人档案 (Memory Profile):", "-------------------"]
+        for mem in memories:
+            # mem0 structure: {'id': '...', 'memory': '...', ...}
+            m_id = mem.get("id", "N/A")
+            m_text = mem.get("memory", "")
+            # 只显示 ID 的前 8 位以保持简洁，如果需要完整 ID 操作，用户可能需要复制
+            # 但 mem0 的 ID 通常是 uuid，比较长。
+            # 为了方便复制，还是显示完整 ID 比较稳妥，或者显示前几位，删除时支持前缀匹配（如果支持的话）。
+            # 这里先显示完整 ID，为了排版美观，可以换行
+            msg_lines.append(f"🆔 {m_id}\n   {m_text}")
+            
+        await matcher.finish("\n".join(msg_lines))
+        
+    elif sub_cmd in ["add", "new", "新增"]:
+        if not payload:
+            await matcher.finish("要在你的档案里加什么呢？请使用 /profile add <内容>")
+            
+        await matcher.send("正在写入记忆...")
+        # Add memory
+        await memory_service.add(payload, user_id=sender_id, metadata={"source": "manual_add"})
+        await matcher.finish("已添加到记忆库！")
+
+    elif sub_cmd in ["rm", "del", "delete", "remove", "删除"]:
+        if not payload:
+             await matcher.finish("请指定要删除的记忆 ID。你可以先用 /profile ls 查看。")
+        
+        await matcher.send(f"正在删除记忆 [{payload}]...")
+        await memory_service.delete(payload)
+        await matcher.finish("删除完成。")
+        
+    else:
+        # Default help
+        await matcher.finish(
+            "🧠 Miku 记忆管理指令:\n"
+            "-------------------\n"
+            "/profile ls       - 查看你的所有记忆\n"
+            "/profile add <内容> - 手动添加一条关于你的记忆\n"
+            "/profile rm <ID>  - 删除指定 ID 的记忆"
+        )
+
+
 # * 1. 闲聊
 is_chatting = False
 ai = on_regex(r"^(miku,|miku，)|([,，]miku)$", flags=re.IGNORECASE, priority=1, block=False)
@@ -213,9 +273,44 @@ async def _(event: GroupMessageEvent):
             logger.warning(f"Failed to inject voice info: {e}")
 
         current_sys_prompt += f"\n\n[Context]\nCurrent Group ID: {group_id}"
+        
+        # --- 构建消息列表 (Structured Messages) ---
+        # 方案：严格区分 System / History / Current Query
+        # 这样能有效防止 AI 对旧消息进行“补全”而非“回复”
+        
         messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": current_sys_prompt}]
-        # 2. Context History
-        messages.extend(context)
+        
+        # 1. 处理历史记录 (Short-term Memory)
+        # context 包含了 [..., msg_n-1, msg_n]
+        # 我们把 msg_n (当前用户的触发消息) 单独拿出来作为 Prompt 的最后一条
+        
+        history_msgs = []
+        current_msg_obj = None
+        
+        if context:
+            # 简单启发式：如果最后一条消息的内容包含了用户的 query_text，
+            # 或者就是用户刚刚发的，那么把它视为 Current Query
+            last_msg = context[-1]
+            
+            # 判断最后一条是否是本次触发的消息（通过内容匹配，虽然有风险但对于 listener 机制最简便）
+            # listener 存进去的内容可能带有 "Name: " 前缀 (如果是 User)
+            # 我们的 query_text 是去除了 Miku 前缀的纯文本
+            
+            # 这里直接取最后一条作为当前消息，剩下的作为历史
+            # 这样 AI 就能明确：上面的都是过去式，最后这一句才是现在要处理的
+            current_msg_obj = last_msg
+            history_msgs = context[:-1]
+        
+        # 添加历史背景
+        messages.extend(history_msgs)
+        
+        # 添加当前消息 (Trigger)
+        # 显式地将其作为最后一条 User 消息，引导模型聚焦
+        if current_msg_obj:
+             messages.append(current_msg_obj)
+        else:
+            # 兜底：如果 listener 还没来得及存进去（理论上不应发生），手动构造一条
+            messages.append({"role": PLUGIN_CONFIG.ROLE_USER, "content": f"User: {user_input}"})
 
         # ---------------------------------------------------------------------
         # Stage 1: Intent Detection (Non-Stream)

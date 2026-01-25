@@ -135,5 +135,18 @@ class MemoryService:
             logger.error(f"Error getting all memories: {e}")
             return []
 
+    async def delete(self, memory_id: str):
+        """
+        根据 ID 删除记忆。
+        """
+        if not self._memory:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._memory.delete, memory_id)
+            logger.info(f"Memory deleted: {memory_id}")
+        except Exception as e:
+            logger.error(f"Error deleting memory {memory_id}: {e}")
+
 # 单例导出
 memory_service = MemoryService()

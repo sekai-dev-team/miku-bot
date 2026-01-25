@@ -103,6 +103,38 @@ Miku Bot 是一个基于 [NoneBot2](https://github.com/nonebot/nonebot2) 的多�
         *   **配置**: `/vconf` 修改语速、切分长度等参数。
         *   **模型**: `/switch_model` 动态切换 GPT-SoVITS 模型权重。
 
+### 7. 长期记忆系统 (Neuro-Miku Memory System)
+赋予 Miku 跨越会话的长期记忆能力，实现个性化与连贯的对话体验。
+
+*   **入口**: `src/common/memory_service.py`
+*   **核心架构**: 基于 [Mem0](https://github.com/mem0ai/mem0) + [ChromaDB](https://www.trychroma.com/)。
+*   **工作流**:
+    1.  **检索 (Recall)**:
+        *   在 AI 思考前，提取用户输入的关键词。
+        *   使用本地 CPU 模型 (`all-MiniLM-L6-v2`) 将 Query 转化为向量。
+        *   在 ChromaDB 中检索 Top-K 相关记忆。
+    2.  **注入 (Inject)**:
+        *   检索到的记忆片段被格式化为 `## 长期记忆回顾` 区块，注入到 System Prompt 中。
+        *   AI 根据记忆调整人设与回答策略（例如：记得用户不喜欢吃香菜）。
+    3.  **生成 (Generate)**: AI 生成回复。
+    4.  **固化 (Consolidate)**:
+        *   回复完成后，后台异步启动记忆存储任务。
+        *   LLM 分析当前对话 (`User` + `Assistant`)，提取新的事实或更新旧事实。
+        *   更新后的记忆被写回向量数据库。
+*   **特性**:
+    *   **零显存占用**: 强制使用 CPU 进行 Embedding 运算，避免挤占 TTS 或 LLM 的显存资源。
+    *   **异步处理**: 记忆的提取与写入完全在后台进行，不增加用户对话的等待时延。
+    *   **配置管理**: 可在 `plugin_configs.yaml` 中自定义 Embedding 模型供应商与数据库路径。
+
+### 8. 记忆管理 (Memory Management)
+允许用户查看和管理 Miku 对自己的认知。
+
+*   **入口**: `src/plugins/chat` (集成在 `/profile` 指令中)
+*   **功能指令**:
+    *   `/profile ls` (或 `list`): 查看个人记忆画像及 ID。
+    *   `/profile add <内容>`: 手动植入记忆事实。
+    *   `/profile rm <ID>`: 删除指定的记忆条目。
+
 ---
 
 ## 🛠️ 项目结构
