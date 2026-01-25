@@ -46,7 +46,7 @@ def parse_dsml_tool_calls(content: str) -> list[dict]:
     tool_calls = []
     
     # 提取 function_calls 块
-    block_pattern = r"<｜DSML｜function_calls>(.*?)</｜DSML｜function_calls>"
+    block_pattern = r"<[|｜]DSML[|｜]function_calls>(.*?)</[|｜]DSML[|｜]function_calls>"
     block_match = re.search(block_pattern, content, re.DOTALL)
     
     if not block_match:
@@ -55,7 +55,7 @@ def parse_dsml_tool_calls(content: str) -> list[dict]:
     block_content = block_match.group(1)
     
     # 提取 invoke
-    invoke_pattern = r"<｜DSML｜invoke name=\"(.*?)\">(.*?)</｜DSML｜invoke>"
+    invoke_pattern = r"<[|｜]DSML[|｜]invoke name=\"(.*?)\">(.*?)</[|｜]DSML[|｜]invoke>"
     invokes = re.finditer(invoke_pattern, block_content, re.DOTALL)
     
     for invoke in invokes:
@@ -65,7 +65,7 @@ def parse_dsml_tool_calls(content: str) -> list[dict]:
         args = {}
         # 提取 parameter
         # 注意：这里假设 parameter 格式比较规范，如果有嵌套可能需要更复杂的解析
-        param_pattern = r"<｜DSML｜parameter name=\"(.*?)\"(?:.*?)>(.*?)</｜DSML｜parameter>"
+        param_pattern = r"<[|｜]DSML[|｜]parameter name=\"(.*?)\"(?:.*?)>(.*?)</[|｜]DSML[|｜]parameter>"
         params = re.finditer(param_pattern, args_content, re.DOTALL)
         
         for param in params:
