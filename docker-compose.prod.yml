@@ -1,10 +1,8 @@
 services:
   miku-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: 007hikari/miku-bot:latest
     container_name: miku-bot
+    restart: always
     deploy:
       resources:
         reservations:
@@ -12,48 +10,48 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    ports:
-    - 9999:9999
-    restart: unless-stopped
     env_file:
       - .env
     environment:
-      SUPERUSERS: '填写超级用户，可选数组'
+      SUPERUSERS: '[]'
       COMMAND_START: '["/"]'
     volumes:
-      - ./data/configs:/app/configs
-      - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/history_book:/app/data/history_book
+      - ./data/resources:/app/src/common/resources
+      - ./data/configs:/app/configs
 
-      # 挂载源码中的资源目录，以便持久化保存自定义提示词(custom_bili_prompts.json)和修改手册/人设
-      - ./src/common/resources:/app/src/common/resources
+      #! 命名卷，与其他容器共享卷
+      # - ./data/bilinote_shared:/app/data/local_bilinote
+      # - ./data/trend_news:/app/data/news
+      # - /home/kami/secrets/data/stock:/app/data/stock
+      - vol_shared_stock_data:/app/data/stock/data:ro                 # 与Daily stock analysis共享股票数据
+      - vol_shared_stock_reports:/app/data/stock/reports:ro
+      - vol_shared_bilinote:/app/data/local_bilinote:ro               # 与Bilinote共享笔记数据
+      - vol_shared_trendradar:/app/data/news:ro                       # 与TrendRadar共享新闻数据
+      - ./data/chat_history:/app/data/chat_history                    # ChatRecorder 数据库 (SQLite)
+      - ./data/memory_store:/app/data/memory_store                    # ChromaDB 向量数据库
+    # depends_on:
+    #   - napcat
+    networks:
+      - nginx_proxy
 
-      # 与其他容器共享命名卷，默认注释以保证开箱即用。若需使用请先在下方 volumes 模块取消注释并确保卷已创建。
-      # - YOUR_NAMED_VOLUME_A:/app/data/stock/data:ro                 # 与Daily stock analysis共享股票数据（https://github.com/ZhuLinsen/daily_stock_analysis）
-      # - YOUR_NAMED_VOLUME_B:/app/data/stock/reports:ro              # 与Daily stock analysis共享股票数据（https://github.com/ZhuLinsen/daily_stock_analysis）
-      # - YOUR_NAMED_VOLUME_C:/app/data/local_bilinote:ro             # 与Bilinote共享笔记数据
-      # - YOUR_NAMED_VOLUME_D:/app/data/news:ro                       # 与TrendRadar共享新闻数据（https://github.com/sansan0/TrendRadar）
+networks:
+  nginx_proxy:
+    external: true
 
-    # 网络配置可选
-    # networks:
-    #   - YOUR_NETWORK
-
-# networks:
-#   YOUR_NETWORK:
-#     external: true
-
-# volumes:
-#   # 股票数据
-#   YOUR_NAMED_VOLUME_A:
-#     external: true
-#   YOUR_NAMED_VOLUME_B:
-#     external: true
-#   # 笔记数据
-#   YOUR_NAMED_VOLUME_C:
-#     external: true
-#   # 新闻数据
-#   YOUR_NAMED_VOLUME_D:
-#     external: true
+volumes:
+  # 笔记数据
+  vol_shared_bilinote:
+    external: true
+  # 新闻数据
+  vol_shared_trendradar:
+    external: true
+  # 股票数据
+  vol_shared_stock_data:
+    external: true
+  vol_shared_stock_reports:
+    external: true
 
 
