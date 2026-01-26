@@ -153,32 +153,49 @@ class NewsService:
                 logger.error(f"读取 DB 统计失败: {e}")
             
         context_desc = f"关于 {'、'.join(keywords)} 的" if keywords else "今日"
-        system_prompt = (
-            f"你是 Miku，大家最可爱的虚拟偶像！现在要请你帮大家整理一下{context_desc}热点新闻。\n"
-            "要求：\n"
-            "1. **纯文本口语模式**：严禁使用任何 Markdown 格式（如 `**` 加粗、标题）。严禁使用列表（1. 2. 3. 或 -）。\n"
-            "2. **自然衔接**：请用流畅的语言把新闻串联起来，使用“首先”、“其次”、“还有哦”等连接词，形成自然的段落。\n"
-            "3. **减少换行**：不要频繁换行，一段话内包含多个相关的句子。\n"
-            "4. **划重点**：挑选 3-5 个真正值得关注的大事，用你自己的语气概括一下（不要复读标题）。\n"
-            "5. **Miku 的感悟**：最后分享一下你对这些事情的小看法，要元气满满哦 ♪\n"
-            "6. **保持简洁**：不要太长，控制在 400 字以内，多用 Emoji 和颜文字。"
-        )
+        
+        prompts_config = config_manager.get_config("prompts")
+        system_prompt_template = prompts_config.get("news_summary_template")
+        
+        if system_prompt_template:
+            try:
+                system_prompt = system_prompt_template.format(context_desc=context_desc)
+            except KeyError as e:
+                logger.error(f"Failed to format news summary template: {e}")
+                system_prompt = (
+                    f"你是 Miku，大家最可爱的虚拟偶像！现在要请你帮大家整理一下{context_desc}热点新闻。\n"
+                    "要求：\n"
+                    "1. **纯文本口语模式**：严禁使用任何 Markdown 格式（如 `**` 加粗、标题）。严禁使用列表（1. 2. 3. 或 -）。\n"
+                    "2. **自然衔接**：请用流畅的语言把新闻串联起来，使用“首先”、“其次”、“还有哦”等连接词，形成自然的段落。\n"
+                    "3. **减少换行**：不要频繁换行，一段话内包含多个相关的句子。\n"
+                    "4. **划重点**：挑选 3-5 个真正值得关注的大事，用你自己的语气概括一下（不要复读标题）。\n"
+                    "5. **Miku 的感悟**：最后分享一下你对这些事情的小看法，要元气满满哦 ♪\n"
+                    "6. **保持简洁**：不要太长，控制在 400 字以内，多用 Emoji 和颜文字。"
+                )
+        else:
+            system_prompt = (
+                f"你是 Miku，大家最可爱的虚拟偶像！现在要请你帮大家整理一下{context_desc}热点新闻。\n"
+                "要求：\n"
+                "1. **纯文本口语模式**：严禁使用任何 Markdown 格式（如 `**` 加粗、标题）。严禁使用列表（1. 2. 3. 或 -）。\n"
+                "2. **自然衔接**：请用流畅的语言把新闻串联起来，使用“首先”、“其次”、“还有哦”等连接词，形成自然的段落。\n"
+                "3. **减少换行**：不要频繁换行，一段话内包含多个相关的句子。\n"
+                "4. **划重点**：挑选 3-5 个真正值得关注的大事，用你自己的语气概括一下（不要复读标题）。\n"
+                "5. **Miku 的感悟**：最后分享一下你对这些事情的小看法，要元气满满哦 ♪\n"
+                "6. **保持简洁**：不要太长，控制在 400 字以内，多用 Emoji 和颜文字。"
+            )
         
         user_content = f"新闻数据:\n{raw_data}\n{db_stats_text}"
 
         try:
+            # 修改：AIService.chat_completion 默认返回的是 response 对象，如果是流式则需要处理。
+            # 这里为了简单起见，可以传入 stream=False 或者处理返回的 response。
+            # 根据 AIService 的实现，如果不传 stream，则使用 GLOBAL_AI_CONFIG.stream。
             response = await AIService.chat_completion([
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
-            ])
+            ], stream=False)
             
-            # 处理流式响应
-            full_content = ""
-            async for chunk in response:
-                 if chunk.choices[0].delta.content is not None:
-                    full_content += chunk.choices[0].delta.content
-                    
-            return full_content
+            return response.choices[0].message.content
             
         except Exception as e:
             logger.error(f"AI 调用失败: {e}")

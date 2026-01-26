@@ -58,6 +58,24 @@ class MemoryService:
                 logger.info(f"Set OPENAI_BASE_URL to {GLOBAL_AI_CONFIG.base_url}")
 
             # Mem0 配置
+            prompts_config = config_manager.get_config("prompts")
+            custom_prompt = prompts_config.get("memory_extraction")
+            
+            if not custom_prompt:
+                logger.warning("Memory extraction prompt not found in config, using default fallback.")
+                custom_prompt = (
+                    "你是一位专业的记忆管理专家。你的任务是从对话中提取关于用户的简洁、客观的事实（FACTS），用于构建用户画像。\n"
+                    "规则：\n"
+                    "1. **主语明确**：提取的事实必须以 'User' 开头。例如 'User 喜欢抹茶'，禁止省略主语。\n"
+                    "2. **过滤琐事**：严厉忽略无意义的闲聊、情绪宣泄（如'急'、'草'、'哈哈'）、即时状态（如'在吗'、'去吃饭了'）以及对AI功能的询问。\n"
+                    "3. **事实导向**：只记录用户的偏好、背景信息、观点或长期计划。不要记录具体的对话过程。\n"
+                    "   - ❌ 错误：'User 说这句急' -> 忽略\n"
+                    "   - ❌ 错误：'User 问能不能用港卡' -> ✅ 正确：'User 关注港卡支付或海外AI服务' (提取意图)\n"
+                    "   - ❌ 错误：'喜欢抹茶' (缺主语) -> ✅ 正确：'User 喜欢抹茶口味'\n"
+                    "4. **指代消解**：将 '它'、'这个' 等代词替换为明确的名词。\n"
+                    "5. **语言要求**：提取出的记忆内容请使用**简体中文**。"
+                )
+
             mem0_config = {
                 "version": "v1.1",
                 "vector_store": {
@@ -85,18 +103,7 @@ class MemoryService:
                         "model": config.get("embedder_model", "text-embedding-3-small"),
                     },
                 },
-                "custom_prompt": (
-                    "你是一位专业的记忆管理专家。你的任务是从对话中提取关于用户的简洁、客观的事实（FACTS），用于构建用户画像。\n"
-                    "规则：\n"
-                    "1. **主语明确**：提取的事实必须以 'User' 开头。例如 'User 喜欢抹茶'，禁止省略主语。\n"
-                    "2. **过滤琐事**：严厉忽略无意义的闲聊、情绪宣泄（如'急'、'草'、'哈哈'）、即时状态（如'在吗'、'去吃饭了'）以及对AI功能的询问。\n"
-                    "3. **事实导向**：只记录用户的偏好、背景信息、观点或长期计划。不要记录具体的对话过程。\n"
-                    "   - ❌ 错误：'User 说这句急' -> 忽略\n"
-                    "   - ❌ 错误：'User 问能不能用港卡' -> ✅ 正确：'User 关注港卡支付或海外AI服务' (提取意图)\n"
-                    "   - ❌ 错误：'喜欢抹茶' (缺主语) -> ✅ 正确：'User 喜欢抹茶口味'\n"
-                    "4. **指代消解**：将 '它'、'这个' 等代词替换为明确的名词。\n"
-                    "5. **语言要求**：提取出的记忆内容请使用**简体中文**。"
-                ),
+                "custom_prompt": custom_prompt,
             }
 
             # 内存节省模式：使用本地 CPU 嵌入模型

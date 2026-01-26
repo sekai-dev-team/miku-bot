@@ -37,9 +37,8 @@ class SystemMonitor:
         
         bar = cls._progress_bar(percent)
         return (
-            f"内存: {percent}%\n"
+            f"内存: {percent}% ({used_mb:.0f}MB / {total_mb:.0f}MB)\n"
             f"{bar}\n"
-            f"   {used_mb:.0f}MB / {total_mb:.0f}MB"
         )
 
     @classmethod
@@ -84,9 +83,8 @@ class SystemMonitor:
                             info_str += "\n"
                             
                         info_str += (
-                            f"{prefix}{percent:.1f}%\n"
+                            f"{prefix}{percent:.1f}% ({used:.0f}MB / {total:.0f}MB)\n"
                             f"{bar}\n"
-                            f"   {used:.0f}MB / {total:.0f}MB"
                         )
                 except ValueError:
                     continue
@@ -143,8 +141,7 @@ class SystemMonitor:
             total = balance_info.get('total_balance', '0')
             
             return (
-                f"API余额: {total} {currency}\n"
-                f"   (可用: {parsed.get('is_available', False)})"
+                f"API余额: {total} {currency} (可用: {parsed.get('is_available', False)})\n"
             )
             
         except Exception as e:

@@ -300,13 +300,34 @@ async def _(event: GroupMessageEvent):
             # Assuming ref_audio_path is like "/app/ref_audio/mika_zh.wav"
             voice_name = Path(voice_config.ref_audio_path).stem  # e.g., "mika_zh"
             
-            voice_injection = (
-                f"\n\n## 当前状态感知 (System Awareness)\n"
-                f"*   **当前使用音色 ID**: `{voice_name}`\n"
-                f"*   **音色参考台词**: \"{voice_config.ref_text}\"\n"
-                f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。\n"
-                f"*   **语音使用频度**: 请根据情境灵活判断是否使用语音（`speak_text`），**不必**每句话都使用，保持自然的对话节奏。"
-            )
+            prompts_config = config_manager.get_config("prompts")
+            voice_template = prompts_config.get("voice_injection_template")
+            
+            if voice_template:
+                try:
+                    voice_injection = voice_template.format(
+                        voice_name=voice_name,
+                        ref_text=voice_config.ref_text
+                    )
+                except KeyError as e:
+                    logger.error(f"Failed to format voice template: {e}")
+                    # Fallback
+                    voice_injection = (
+                        f"\n\n## 当前状态感知 (System Awareness)\n"
+                        f"*   **当前使用音色 ID**: `{voice_name}`\n"
+                        f"*   **音色参考台词**: \"{voice_config.ref_text}\"\n"
+                        f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。\n"
+                        f"*   **语音使用频度**: 请根据情境灵活判断是否使用语音（`speak_text`），**不必**每句话都使用，保持自然的对话节奏。"
+                    )
+            else:
+                voice_injection = (
+                    f"\n\n## 当前状态感知 (System Awareness)\n"
+                    f"*   **当前使用音色 ID**: `{voice_name}`\n"
+                    f"*   **音色参考台词**: \"{voice_config.ref_text}\"\n"
+                    f"*   **自我认知更新**: 你现在拥有上述参考台词所体现的声线和语气特点。请在对话中自然地融入这种语感（例如：如果参考台词很温柔，就表现得温柔；如果很傲娇，就表现得傲娇）。\n"
+                    f"*   **语音使用频度**: 请根据情境灵活判断是否使用语音（`speak_text`），**不必**每句话都使用，保持自然的对话节奏。"
+                )
+
             current_sys_prompt += voice_injection
         except ImportError:
             pass
@@ -546,15 +567,38 @@ async def _(event: GroupMessageEvent):
             
             # 2. Add the explicit instruction to guide extraction
             # This acts as a dynamic system prompt injection
-            instruction = (
-                f"【记忆提取指令 (Memory Extraction Directive)】\n"
-                f"当前目标用户 (Target User): [{current_user_name}]。\n"
-                f"任务：请分析上述对话上下文，**仅提取**关于目标用户 [{current_user_name}] 的事实、偏好或经历。\n"
-                f"规则：\n"
-                f"1. 忽略其他用户的个人信息，除非它们是理解目标用户行为的必要背景。\n"
-                f"2. 提取出的事实主语请统一使用 'User' (代表 {current_user_name})。\n"
-                f"3. 如果没有关于 {current_user_name} 的新事实，则不提取。"
-            )
+            
+            prompts_config = config_manager.get_config("prompts")
+            instruction_template = prompts_config.get("memory_instruction")
+            
+            if instruction_template:
+                # Use the template from config
+                try:
+                    instruction = instruction_template.format(current_user_name=current_user_name)
+                except KeyError as e:
+                    logger.error(f"Failed to format memory instruction template: {e}")
+                    # Fallback if template keys don't match
+                    instruction = (
+                        f"【记忆提取指令 (Memory Extraction Directive)】\n"
+                        f"当前目标用户 (Target User): [{current_user_name}]。\n"
+                        f"任务：请分析上述对话上下文，**仅提取**关于目标用户 [{current_user_name}] 的事实、偏好或经历。\n"
+                        f"规则：\n"
+                        f"1. 忽略其他用户的个人信息，除非它们是理解目标用户行为的必要背景。\n"
+                        f"2. 提取出的事实主语请统一使用 'User' (代表 {current_user_name})。\n"
+                        f"3. 如果没有关于 {current_user_name} 的新事实，则不提取。"
+                    )
+            else:
+                # Fallback if config is missing
+                instruction = (
+                    f"【记忆提取指令 (Memory Extraction Directive)】\n"
+                    f"当前目标用户 (Target User): [{current_user_name}]。\n"
+                    f"任务：请分析上述对话上下文，**仅提取**关于目标用户 [{current_user_name}] 的事实、偏好或经历。\n"
+                    f"规则：\n"
+                    f"1. 忽略其他用户的个人信息，除非它们是理解目标用户行为的必要背景。\n"
+                    f"2. 提取出的事实主语请统一使用 'User' (代表 {current_user_name})。\n"
+                    f"3. 如果没有关于 {current_user_name} 的新事实，则不提取。"
+                )
+            
             memory_messages.append({"role": "user", "content": instruction})
 
             # 3. Append the current assistant response to complete the loop
