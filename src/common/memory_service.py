@@ -72,7 +72,6 @@ class MemoryService:
                     "config": {
                         "api_key": GLOBAL_AI_CONFIG.api_key,
                         "model": GLOBAL_AI_CONFIG.chat_model,
-                        "base_url": GLOBAL_AI_CONFIG.base_url,  # Explicitly set base_url
                         "max_tokens": 1000,
                         "temperature": 0.1,
                     },
@@ -222,9 +221,15 @@ class MemoryService:
 # 单例导出
 memory_service = MemoryService()
 
-from nonebot import get_driver
-driver = get_driver()
+try:
+    from nonebot import get_driver
+    driver = get_driver()
 
-@driver.on_startup
-async def _():
-    await memory_service.initialize()
+    @driver.on_startup
+    async def _():
+        await memory_service.initialize()
+except ValueError:
+    # 允许在非 NoneBot 环境（如调试脚本）中导入
+    logger.warning("NoneBot driver not found. MemoryService will not auto-initialize.")
+except ImportError:
+    pass
