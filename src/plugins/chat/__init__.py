@@ -520,8 +520,9 @@ async def _(event: GroupMessageEvent):
             memory_messages = []
             
             if context:
-                # Include up to 3 previous messages to provide context
-                for msg in context[-3:]:
+                # Include up to 15 previous messages to provide deeper context for memory extraction
+                # This helps capturing facts when user sends multiple messages in a row
+                for msg in context[-15:]:
                     memory_messages.append({"role": msg['role'], "content": msg['content']})
             else:
                 # Fallback
