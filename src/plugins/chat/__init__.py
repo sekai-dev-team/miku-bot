@@ -20,7 +20,7 @@ from src.common.tool_registry import tool_registry
 from .msg_context import SimulatedGroupMsg
 from .sentence_handler import SentenceBuffer
 from .sys_monitor import SystemMonitor
-from .utils import get_event_info, is_friend, parse_dsml_tool_calls
+from .utils import get_event_info, is_friend, parse_dsml_tool_calls, DSMLFilter
 from .msg_context import SimulatedGroupMsgListener
 from .help_menu import get_main_menu_text, get_plugin_help_text
 from src.common.config_manager import config_manager
@@ -246,6 +246,7 @@ async def _(event: GroupMessageEvent):
         is_chatting = True
 
     sb = SentenceBuffer()
+    dsml_filter = DSMLFilter()
     is_first_sent = True
     context = LISTENER.get_context(group_id)
     
@@ -384,10 +385,9 @@ async def _(event: GroupMessageEvent):
         
         # 准备一个内部函数来处理文本片段（复用流式和非流式逻辑）
         full_ai_response = ""
-        async def process_text_segment(text_seg: str):
-            nonlocal full_ai_response
-            full_ai_response += text_seg
-            for char in text_seg:
+        
+        async def _send_cleaned_text(text: str):
+            for char in text:
                 sentence = sb.append(char)
                 if sentence:
                     # 全面去除行首的 Miku: 前缀，增加人味
@@ -403,6 +403,14 @@ async def _(event: GroupMessageEvent):
                             group_msg = SimulatedGroupMsg(group_id, PLUGIN_CONFIG.AI_NAME, PLUGIN_CONFIG.ROLE_ASSISTANT, f"{PLUGIN_CONFIG.AI_NAME}: {sub_line}")
                             LISTENER.listen(group_msg)
                             await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
+
+        async def process_text_segment(text_seg: str):
+            nonlocal full_ai_response
+            full_ai_response += text_seg
+            
+            clean_text = dsml_filter.feed(text_seg)
+            if clean_text:
+                await _send_cleaned_text(clean_text)
 
         # Check for DSML (DeepSeek XML format)
         dsml_tool_calls = []
@@ -530,6 +538,12 @@ async def _(event: GroupMessageEvent):
                     await process_text_segment(clean_content)
 
         # 处理流结束后剩余的文本
+        # 1. Flush DSML filter
+        remain_from_filter = dsml_filter.flush()
+        if remain_from_filter:
+            await _send_cleaned_text(remain_from_filter)
+            
+        # 2. Flush Sentence Buffer
         remain_text = sb.force_flush()
         if remain_text:
             miku_prefix = r"^(Miku[:：])+"

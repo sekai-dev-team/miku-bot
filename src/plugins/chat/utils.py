@@ -124,3 +124,122 @@ class MsgUtils:
         
     def construct_split(self) -> Message:
         pass
+
+class DSMLFilter:
+    """
+    流式过滤器，用于从输出流中拦截并移除 DeepSeek 的 <｜DSML｜...> 标签块。
+    支持处理跨 chunk 的标签和换行。
+    """
+    def __init__(self):
+        self.buffer = ""
+        self.state = "NORMAL" # NORMAL, CHECKING, INSIDE_BLOCK
+
+    def feed(self, text: str) -> str:
+        output = []
+        for char in text:
+            if self.state == "NORMAL":
+                if char == "<":
+                    self.state = "CHECKING"
+                    self.buffer += char
+                else:
+                    output.append(char)
+            
+            elif self.state == "CHECKING":
+                self.buffer += char
+                # 检查缓冲区是否已经明显不是 DSML 标签
+                if self._is_mismatch(self.buffer):
+                    # 匹配失败，说明不是 DSML (如 "<hello")
+                    # 将缓冲区内容全部作为普通文本输出
+                    output.append(self.buffer)
+                    self.buffer = ""
+                    self.state = "NORMAL"
+                elif self._is_start_tag_complete(self.buffer):
+                    # 成功匹配到开始标签 (如 <｜DSML｜invoke...>)
+                    # 进入屏蔽模式，丢弃后续内容直到结束标签
+                    self.state = "INSIDE_BLOCK"
+                    self.buffer = "" # 清空缓冲区，开始寻找结束标签
+            
+            elif self.state == "INSIDE_BLOCK":
+                self.buffer += char
+                if char == ">":
+                    # 每当遇到 '>'，检查是否构成了结束标签
+                    if self._check_end_tag(self.buffer):
+                        self.state = "NORMAL"
+                        self.buffer = ""
+                    else:
+                        # 优化：为了防止缓冲区无限膨胀 (比如模型忘记闭合)，
+                        # 我们只需要保留末尾足够匹配结束标签的长度。
+                        # 结束标签通常是 </｜DSML｜xxx>，长度一般在 50 以内。
+                        if len(self.buffer) > 100:
+                            self.buffer = self.buffer[-50:]
+                            
+        return "".join(output)
+
+    def flush(self) -> str:
+        """流结束时调用，将缓冲区内剩余的非标签内容输出"""
+        res = ""
+        # 如果还在 CHECKING 状态，说明剩下的不足以构成标签，全部吐出
+        if self.state == "CHECKING" and self.buffer:
+            res = self.buffer
+        # 如果在 INSIDE_BLOCK 状态，说明标签未闭合。
+        # 选择丢弃（认为是被截断的指令），还是输出（认为是乱码）？
+        # 通常为了安全，不输出未闭合的 DSML 块。
+        
+        self.buffer = ""
+        self.state = "NORMAL"
+        return res
+
+    def _is_mismatch(self, s: str) -> bool:
+        """
+        判断字符串 s 是否**不可能**成为 <...|DSML... 的前缀
+        """
+        # 如果长度还没到关键特征区，先认为不是 mismatch
+        # 关键特征序列: < -> space -> |/｜ -> space -> D -> S -> M -> L
+        
+        # 1. 必须以 < 开头
+        if not s.startswith("<"): return True
+        
+        # 使用正则检查是否匹配"合法前缀"
+        # 这是一个宽松的正则，只要字符串符合 DSML 标签的起始部分的任何子集，就返回 True
+        import re
+        # 允许的模式： < \s* [|｜]? \s* D? S? M? L?
+        # 注意：这里逻辑反过来写比较好——如果它连这个宽松模式都不匹配，那就是 Mismatch
+        
+        # 暂时用简单的逐字符逻辑，更加可控
+        content = s[1:] # 去掉 <
+        
+        # 跳过开头的空白
+        content = content.lstrip()
+        if not content: return False # 只有 < 和空格，合法
+        
+        # 检查管道符
+        if content[0] not in ('|', '｜'):
+            return True # 第一个非空字符不是管道符，Mismatch
+            
+        content = content[1:] # 去掉管道符
+        content = content.lstrip() # 去掉后续空白
+        if not content: return False
+        
+        # 检查 DSML 关键字
+        target = "DSML"
+        # content 必须是 "DSML" 的前缀
+        if not target.startswith(content) and not content.startswith(target):
+             # 比如 content="A", mismatch
+             # content="DS", match
+             # content="DSMLxxx", match (handled by start tag check)
+             return True
+             
+        return False
+
+    def _is_start_tag_complete(self, s: str) -> bool:
+        """检查是否完整匹配了开始标签"""
+        import re
+        # 匹配 <...|...DSML...> 
+        return bool(re.search(r"<\s*[|｜]\s*DSML.*?>", s, re.IGNORECASE))
+
+    def _check_end_tag(self, s: str) -> bool:
+        """检查字符串末尾是否是结束标签"""
+        import re
+        # 匹配 </...|...DSML...> 结尾
+        # 注意：结束标签通常也包含 function_calls 或 invoke 等，所以只要匹配到 </...DSML...> 结构即可
+        return bool(re.search(r"<\/\s*[|｜]\s*DSML.*?>$", s, re.IGNORECASE))
