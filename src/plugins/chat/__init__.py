@@ -274,7 +274,14 @@ async def _(event: GroupMessageEvent):
                     memory_list.append(m)
             
             if memory_list:
-                memory_context = "\n\n## 长期记忆回顾 (Long-term Memories)\n" + "\n".join([f"* {m}" for m in memory_list])
+                formatted_memories = []
+                for m in memory_list:
+                    # Ensure subject is explicit to prevent self-identification errors
+                    if not m.lower().startswith("user"):
+                        m = f"User {m}"
+                    formatted_memories.append(f"* {m}")
+                
+                memory_context = "\n\n## 关于该用户的记忆 (User Profile)\n" + "\n".join(formatted_memories)
                 logger.debug(f"Retrieved {len(memory_list)} memories for user {sender_id}")
 
         # 构造请求消息列表
@@ -519,17 +526,40 @@ async def _(event: GroupMessageEvent):
             # Pass list of messages to mem0 for better structural understanding
             memory_messages = []
             
-            if context:
-                # Include up to 15 previous messages to provide deeper context for memory extraction
-                # This helps capturing facts when user sends multiple messages in a row
-                for msg in context[-15:]:
-                    memory_messages.append({"role": msg['role'], "content": msg['content']})
-            else:
-                # Fallback
-                memory_messages.append({"role": "user", "content": query_text})
+            # FULL CONTEXT + FOCUS INSTRUCTION MODE
+            # Strategy: Send full group context to preserve logic, but use an in-context instruction
+            # to tell the LLM exactly which user to focus on.
+            current_user_name = simulated_msg.info['name']
             
-            # Append the current assistant response
-            memory_messages.append({"role": "assistant", "content": full_ai_response})
+            if context:
+                # 1. Include recent context (last 20 msgs) to capture multi-user interactions
+                for msg in context[-20:]:
+                    role = msg['role']
+                    content = msg['content']
+                    
+                    if role == 'assistant':
+                        # Add prefix for clarity in multi-user transcript
+                        memory_messages.append({"role": "assistant", "content": f"{PLUGIN_CONFIG.AI_NAME}: {content}"})
+                    elif role == 'user':
+                        # Content is already "Name: Msg"
+                        memory_messages.append({"role": "user", "content": content})
+            
+            # 2. Add the explicit instruction to guide extraction
+            # This acts as a dynamic system prompt injection
+            instruction = (
+                f"【记忆提取指令 (Memory Extraction Directive)】\n"
+                f"当前目标用户 (Target User): [{current_user_name}]。\n"
+                f"任务：请分析上述对话上下文，**仅提取**关于目标用户 [{current_user_name}] 的事实、偏好或经历。\n"
+                f"规则：\n"
+                f"1. 忽略其他用户的个人信息，除非它们是理解目标用户行为的必要背景。\n"
+                f"2. 提取出的事实主语请统一使用 'User' (代表 {current_user_name})。\n"
+                f"3. 如果没有关于 {current_user_name} 的新事实，则不提取。"
+            )
+            memory_messages.append({"role": "user", "content": instruction})
+
+            # 3. Append the current assistant response to complete the loop
+            # (Context usually lags one step behind current response)
+            memory_messages.append({"role": "assistant", "content": f"{PLUGIN_CONFIG.AI_NAME}: {full_ai_response}"})
             
             # 后台异步执行记忆提取，不阻塞响应
             asyncio.create_task(memory_service.add(memory_messages, user_id=str(sender_id), metadata={"group_id": group_id}))
