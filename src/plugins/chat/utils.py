@@ -194,25 +194,28 @@ class DSMLFilter:
         判断字符串 s 是否**不可能**成为 <...|DSML... 的前缀
         """
         # 如果长度还没到关键特征区，先认为不是 mismatch
-        # 关键特征序列: < -> space -> |/｜ -> space -> D -> S -> M -> L
+        # 关键特征序列: < -> space -> [/]? -> space -> |/｜ -> space -> D -> S -> M -> L
         
         # 1. 必须以 < 开头
         if not s.startswith("<"): return True
         
         # 使用正则检查是否匹配"合法前缀"
-        # 这是一个宽松的正则，只要字符串符合 DSML 标签的起始部分的任何子集，就返回 True
-        import re
-        # 允许的模式： < \s* [|｜]? \s* D? S? M? L?
-        # 注意：这里逻辑反过来写比较好——如果它连这个宽松模式都不匹配，那就是 Mismatch
-        
-        # 暂时用简单的逐字符逻辑，更加可控
         content = s[1:] # 去掉 <
         
         # 跳过开头的空白
         content = content.lstrip()
         if not content: return False # 只有 < 和空格，合法
         
+        # 允许可选的 / (结束标签)
+        if content.startswith("/"):
+            content = content[1:]
+            content = content.lstrip()
+            if not content: return False
+
         # 检查管道符
+        if not content: # 只有 </ 且后面还没跟东西
+            return False 
+            
         if content[0] not in ('|', '｜'):
             return True # 第一个非空字符不是管道符，Mismatch
             
@@ -224,18 +227,16 @@ class DSMLFilter:
         target = "DSML"
         # content 必须是 "DSML" 的前缀
         if not target.startswith(content) and not content.startswith(target):
-             # 比如 content="A", mismatch
-             # content="DS", match
-             # content="DSMLxxx", match (handled by start tag check)
              return True
              
         return False
 
     def _is_start_tag_complete(self, s: str) -> bool:
-        """检查是否完整匹配了开始标签"""
+        """检查是否完整匹配了开始标签 (或独立的结束标签，将其也视为一个块的开始并吞掉)"""
         import re
-        # 匹配 <...|...DSML...> 
-        return bool(re.search(r"<\s*[|｜]\s*DSML.*?>", s, re.IGNORECASE))
+        # 匹配 <...|...DSML...> 或 </...|...DSML...>
+        # 只要看起来像 DSML 标签，就进入 INSIDE_BLOCK 状态，直到找到 >
+        return bool(re.search(r"<\/?\s*[|｜]\s*DSML.*?>", s, re.IGNORECASE))
 
     def _check_end_tag(self, s: str) -> bool:
         """检查字符串末尾是否是结束标签"""
