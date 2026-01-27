@@ -94,3 +94,6 @@ class SimulatedGroupMsgListener:
         if self.group_count != 0:
             group_stat.extend(groups)
         return "\n".join(group_stat)
+
+# Global Instance
+LISTENER = SimulatedGroupMsgListener()
