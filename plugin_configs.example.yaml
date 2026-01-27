@@ -1,6 +1,6 @@
 global_ai:
   api_key: ""
-  base_url: "https://api.deepseek.com/"
+  base_url: "https://api.deepseek.com/beta"
   chat_model: "deepseek-chat"
   code_model: "deepseek-coder"
   frequency_penalty: 0.0

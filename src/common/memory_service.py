@@ -224,6 +224,82 @@ class MemoryService:
             logger.error(f"Error deleting memory {memory_id}: {e}")
             raise e # 向上抛出异常，让前端能感知到失败
 
+    async def retrieve_formatted_memory(self, user_id: str, query_text: str) -> str:
+        """
+        检索并格式化记忆，供 Prompt 使用。
+        """
+        memories = await self.search(query_text, user_id=user_id)
+        if isinstance(memories, dict) and "results" in memories:
+            memories = memories["results"]
+
+        if not memories:
+            return ""
+
+        memory_list = []
+        for m in memories:
+            if isinstance(m, dict):
+                content = m.get("memory") or m.get("text")
+                if content:
+                    memory_list.append(content)
+            elif isinstance(m, str):
+                memory_list.append(m)
+        
+        if not memory_list:
+            return ""
+
+        formatted_memories = []
+        for m in memory_list:
+            # 简单的 heuristic: 如果没有显式的主语，加上 User
+            # 注意: 这里的 m 已经是提取过的 "User xxxx" 格式 (如果 prompt 遵循了指令)
+            # 但为了保险起见，可以检查一下
+            if not m.lower().strip().startswith("user"):
+                m = f"User {m}"
+            formatted_memories.append(f"* {m}")
+        
+        return "\n\n## 关于该用户的记忆 (User Profile)\n" + "\n".join(formatted_memories)
+
+    async def save_chat_memory(self, user_id: str, group_id: str, user_name: str, ai_name: str, ai_response: str, context_msgs: List[Dict[str, str]]):
+        """
+        分析并保存对话记忆。
+        :param context_msgs: 最近的对话上下文 [{"role": "user"|"assistant", "content": "..."}]
+        """
+        memory_messages = []
+        
+        # 1. 构建用于提取记忆的上下文
+        # 限制上下文长度，例如最近 20 条
+        for msg in context_msgs[-20:]:
+            role = msg.get('role')
+            content = msg.get('content')
+            if role == 'assistant':
+                memory_messages.append({"role": "assistant", "content": f"{ai_name}: {content}"})
+            elif role == 'user':
+                memory_messages.append({"role": "user", "content": content})
+        
+        # 2. 获取提取指令
+        prompts_config = config_manager.get_config("prompts")
+        template = prompts_config.get("memory_instruction")
+        
+        instruction = ""
+        if template:
+            try:
+                instruction = template.format(current_user_name=user_name)
+            except Exception:
+                pass
+                
+        if not instruction:
+            instruction = (
+                f"【记忆提取指令】\n"
+                f"目标用户: [{user_name}]\n"
+                f"请仅提取关于 {user_name} 的新事实、偏好或经历。如果没有则不提取。"
+            )
+            
+        memory_messages.append({"role": "user", "content": instruction})
+        memory_messages.append({"role": "assistant", "content": f"{ai_name}: {ai_response}"})
+        
+        # 3. 执行添加
+        await self.add(memory_messages, user_id=user_id, metadata={"group_id": group_id})
+
+
 
 # 单例导出
 memory_service = MemoryService()
