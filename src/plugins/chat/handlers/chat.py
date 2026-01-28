@@ -96,28 +96,24 @@ async def handle_chat(event: GroupMessageEvent):
             await _send_text(segment)
 
         # --- Stage 1: Intent Detection (Non-Stream) ---
-        # 使用 Strict Mode 后，可以直接信任 tool_calls
         response = await AIService.chat_completion(
             messages, tools=tool_registry.get_tools(), stream=False
         )
-        first_msg = response.choices[0].message
-        
-        if first_msg.tool_calls:
+        first_resp = response.choices[0].message
+
+        if first_resp.tool_calls:
             # Case A: Tool Call Requested
-            # 如果有文本伴随工具调用（Thinking Process），也可以先输出
-            if first_msg.content:
-                 await _process_stream_segment(first_msg.content)
-            
-            messages.append(first_msg)
-            
-            # Execute Tools
-            for tool_call in first_msg.tool_calls:
+            messages.append(first_resp)
+            for tool_call in first_resp.tool_calls:
                 tool_result = await _execute_tool(tool_call)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": str(tool_result)
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": str(tool_result),
+                    }
+                )
+                print(str(tool_result))
 
             # --- Stage 2: Final Response (Stream) ---
             stream = await AIService.chat_completion(messages, stream=True)
@@ -125,11 +121,11 @@ async def handle_chat(event: GroupMessageEvent):
                 delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
                 if delta.content:
                     await _process_stream_segment(delta.content)
-        
+
         else:
             # Case B: Direct Text Response
-            if first_msg.content:
-                await _process_stream_segment(first_msg.content)
+            if first_resp.content:
+                await _process_stream_segment(first_resp.content)
 
         # 6. Finalize Output
         remain_text = sb.force_flush()
@@ -163,6 +159,7 @@ async def handle_chat(event: GroupMessageEvent):
 
 
 # --- Helper Functions ---
+
 
 def _record_assistant_msg(group_id: str, content: str):
     group_msg = SimulatedGroupMsg(
@@ -223,7 +220,7 @@ async def _execute_tool(tool_call) -> str:
         # Standard Tool Call Handling
         func_name = tool_call.function.name
         args_str = tool_call.function.arguments
-        
+
         args = json.loads(args_str)
         tool_res = await tool_registry.dispatch(func_name, args)
 

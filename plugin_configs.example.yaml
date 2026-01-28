@@ -151,6 +151,7 @@ prompts:
     1. 忽略其他用户的个人信息，除非它们是理解目标用户行为的必要背景。
     2. 提取出的事实主语请统一使用 'User' (代表 {current_user_name})。
     3. 如果没有关于 {current_user_name} 的新事实，则不提取。
+    4. 使用中文作为记忆语言。
 
   voice_injection_template: |
     

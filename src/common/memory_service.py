@@ -28,7 +28,9 @@ class MemoryService:
             logger.info(
                 f"DEBUG PROBE: sqlite3.sqlite_version = {sqlite3.sqlite_version}"
             )
-            logger.info(f"DEBUG PROBE: sqlite3 path = {getattr(sqlite3, '__file__', 'unknown')}")
+            logger.info(
+                f"DEBUG PROBE: sqlite3 path = {getattr(sqlite3, '__file__', 'unknown')}"
+            )
             logger.info(
                 f"DEBUG PROBE: sys.modules['sqlite3'] = {sys.modules.get('sqlite3')}"
             )
@@ -60,9 +62,11 @@ class MemoryService:
             # Mem0 配置
             prompts_config = config_manager.get_config("prompts")
             custom_prompt = prompts_config.get("memory_extraction")
-            
+
             if not custom_prompt:
-                logger.warning("Memory extraction prompt not found in config, using default fallback.")
+                logger.warning(
+                    "Memory extraction prompt not found in config, using default fallback."
+                )
                 custom_prompt = (
                     "你是一位专业的记忆管理专家。你的任务是从对话中提取关于用户的简洁、客观的事实（FACTS），用于构建用户画像。\n"
                     "规则：\n"
@@ -177,12 +181,16 @@ class MemoryService:
             if results:
                 # 尝试解析 results 结构，防止日志报错
                 try:
-                    memory_summaries = [r.get("memory") for r in results if isinstance(r, dict)]
+                    memory_summaries = [
+                        r.get("memory") for r in results if isinstance(r, dict)
+                    ]
                     logger.info(
                         f"Memories Found for user {user_id} (query: '{query}'): {memory_summaries}"
                     )
                 except Exception:
-                    logger.info(f"Memories Found for user {user_id}: {len(results)} items")
+                    logger.info(
+                        f"Memories Found for user {user_id}: {len(results)} items"
+                    )
             else:
                 logger.debug(
                     f"No relevant memories found for user {user_id} with query: '{query}'"
@@ -222,7 +230,7 @@ class MemoryService:
             logger.info(f"Memory deleted: {memory_id}")
         except Exception as e:
             logger.error(f"Error deleting memory {memory_id}: {e}")
-            raise e # 向上抛出异常，让前端能感知到失败
+            raise e  # 向上抛出异常，让前端能感知到失败
 
     async def retrieve_formatted_memory(self, user_id: str, query_text: str) -> str:
         """
@@ -243,7 +251,7 @@ class MemoryService:
                     memory_list.append(content)
             elif isinstance(m, str):
                 memory_list.append(m)
-        
+
         if not memory_list:
             return ""
 
@@ -255,50 +263,65 @@ class MemoryService:
             if not m.lower().strip().startswith("user"):
                 m = f"User {m}"
             formatted_memories.append(f"* {m}")
-        
-        return "\n\n## 关于该用户的记忆 (User Profile)\n" + "\n".join(formatted_memories)
 
-    async def save_chat_memory(self, user_id: str, group_id: str, user_name: str, ai_name: str, ai_response: str, context_msgs: List[Dict[str, str]]):
+        return "\n\n## 关于该用户的记忆 (User Profile)\n" + "\n".join(
+            formatted_memories
+        )
+
+    async def save_chat_memory(
+        self,
+        user_id: str,
+        group_id: str,
+        user_name: str,
+        ai_name: str,
+        ai_response: str,
+        context_msgs: List[Dict[str, str]],
+    ):
         """
         分析并保存对话记忆。
         :param context_msgs: 最近的对话上下文 [{"role": "user"|"assistant", "content": "..."}]
         """
         memory_messages = []
-        
+
         # 1. 构建用于提取记忆的上下文
         # 限制上下文长度，例如最近 20 条
         for msg in context_msgs[-20:]:
-            role = msg.get('role')
-            content = msg.get('content')
-            if role == 'assistant':
-                memory_messages.append({"role": "assistant", "content": f"{ai_name}: {content}"})
-            elif role == 'user':
+            role = msg.get("role")
+            content = msg.get("content")
+            if role == "assistant":
+                memory_messages.append(
+                    {"role": "assistant", "content": f"{ai_name}: {content}"}
+                )
+            elif role == "user":
                 memory_messages.append({"role": "user", "content": content})
-        
+
         # 2. 获取提取指令
         prompts_config = config_manager.get_config("prompts")
         template = prompts_config.get("memory_instruction")
-        
+
         instruction = ""
         if template:
             try:
                 instruction = template.format(current_user_name=user_name)
             except Exception:
                 pass
-                
+
         if not instruction:
             instruction = (
                 f"【记忆提取指令】\n"
                 f"目标用户: [{user_name}]\n"
                 f"请仅提取关于 {user_name} 的新事实、偏好或经历。如果没有则不提取。"
             )
-            
-        memory_messages.append({"role": "user", "content": instruction})
-        memory_messages.append({"role": "assistant", "content": f"{ai_name}: {ai_response}"})
-        
-        # 3. 执行添加
-        await self.add(memory_messages, user_id=user_id, metadata={"group_id": group_id})
 
+        memory_messages.append({"role": "user", "content": instruction})
+        memory_messages.append(
+            {"role": "assistant", "content": f"{ai_name}: {ai_response}"}
+        )
+        print(memory_messages)
+        # 3. 执行添加
+        await self.add(
+            memory_messages, user_id=user_id, metadata={"group_id": group_id}
+        )
 
 
 # 单例导出
@@ -306,11 +329,13 @@ memory_service = MemoryService()
 
 try:
     from nonebot import get_driver
+
     driver = get_driver()
 
     @driver.on_startup
     async def _():
         await memory_service.initialize()
+
 except ValueError:
     # 允许在非 NoneBot 环境（如调试脚本）中导入
     logger.warning("NoneBot driver not found. MemoryService will not auto-initialize.")
