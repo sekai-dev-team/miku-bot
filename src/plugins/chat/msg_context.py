@@ -96,6 +96,8 @@ class FullContextManager:
         history = self._committed_history.get(group_id, [])
         pending = self._pending_buffer.get(group_id, [])
 
+        logger.debug(f"[Context] Retrieving context for {group_id}: History={len(history)}, Pending={len(pending)}")
+
         if not pending:
             # 只有历史，没有新消息（可能是直接被唤醒？）
             # 这种情况下，虽然没有新 User 消息，但为了逻辑统一，
@@ -127,6 +129,8 @@ class FullContextManager:
             return  # Should not happen
 
         pending = self._pending_buffer.get(group_id, [])
+        
+        logger.info(f"[Context] Committing transaction for {group_id}. Pending={len(pending)}, AI Response Len={len(ai_response_content)}")
 
         # 1. Commit User Batch
         if pending:
@@ -143,8 +147,7 @@ class FullContextManager:
 
         # 3. Clear Buffer
         self._pending_buffer[group_id] = []
-        logger.info(f"[Context] Transaction Committed for {group_id}. Buffer Cleared.")
-
+        
         # 4. Prune History (Watermark Strategy)
         self._prune_history(group_id)
 
@@ -188,6 +191,10 @@ class FullContextManager:
             p_len = len(self._pending_buffer.get(gid, []))
             group_stat.append(f"Group {gid}: History={h_len}, Pending={p_len}")
         return "\n".join(group_stat)
+
+    @property
+    def active_groups(self) -> List[str]:
+        return list(self._pending_buffer.keys())
 
 
 # Global Instance

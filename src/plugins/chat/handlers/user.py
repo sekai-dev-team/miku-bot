@@ -110,7 +110,7 @@ async def _(bot: Bot, event: MessageEvent):  # 支持私聊
         logger.error(f"Failed to get group list: {e}")
         total_count = "Unknown"
         
-    active_groups = list(LISTENER.group_queues.keys())
+    active_groups = LISTENER.active_groups
     group_stat = f"群总数量: {total_count}"
     if active_groups:
          group_stat += f"\n活跃上下文: {len(active_groups)}\n" + "\n".join(active_groups)

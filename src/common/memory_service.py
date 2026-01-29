@@ -286,8 +286,16 @@ class MemoryService:
         # 1. 构建用于提取记忆的上下文
         # 限制上下文长度，例如最近 20 条
         for msg in context_msgs[-20:]:
-            role = msg.get("role")
-            content = msg.get("content")
+            # 兼容字典和对象 (OpenAI ChatCompletionMessage)
+            if hasattr(msg, "role"):
+                role = msg.role
+                content = getattr(msg, "content", "")
+            elif isinstance(msg, dict):
+                role = msg.get("role")
+                content = msg.get("content")
+            else:
+                continue
+
             if role == "assistant":
                 memory_messages.append(
                     {"role": "assistant", "content": f"{ai_name}: {content}"}

@@ -53,6 +53,8 @@ async def handle_chat(event: GroupMessageEvent):
     try:
         # 4. Prepare Context & Prompts
         user_input = event.get_plaintext().strip()
+        logger.info(f"[ChatFlow] New User Input from {sender_id} in {group_id}: {user_input}")
+
         query_text = re.sub(
             r"^(miku,|miku，)|([,，]miku)$", "", user_input, flags=re.IGNORECASE
         ).strip()
@@ -61,6 +63,7 @@ async def handle_chat(event: GroupMessageEvent):
         memory_context = await memory_service.retrieve_formatted_memory(
             str(sender_id), query_text
         )
+        logger.info(f"[ChatFlow] Memory Retrieved: {len(memory_context) if memory_context else 0} chars")
 
         # 4.2 Build System Prompt
         system_prompt = _build_system_prompt(group_id, memory_context)
@@ -75,6 +78,10 @@ async def handle_chat(event: GroupMessageEvent):
         
         messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": system_prompt}]
         messages.extend(context_msgs)
+
+        # Log the full payload structure summary
+        payload_summary = [{"role": m.get("role"), "len": len(str(m.get("content", "")))} for m in messages]
+        logger.info(f"[ChatFlow] Sending to AI. Payload structure: {payload_summary}")
 
         # 5. Core Chat Loop
 
@@ -103,16 +110,22 @@ async def handle_chat(event: GroupMessageEvent):
             await _send_text(segment)
 
         # --- Stage 1: Intent Detection (Non-Stream) ---
+        tools = tool_registry.get_tools()
+        _log_payload({"messages": messages, "tools": tools}) # Log Full Payload
+        
         response = await AIService.chat_completion(
-            messages, tools=tool_registry.get_tools(), stream=False
+            messages, tools=tools, stream=False
         )
         first_resp = response.choices[0].message
+        logger.info(f"[ChatFlow] AI Initial Response: {first_resp}")
 
         if first_resp.tool_calls:
             # Case A: Tool Call Requested
             messages.append(first_resp)
             for tool_call in first_resp.tool_calls:
+                logger.info(f"[ChatFlow] Executing Tool: {tool_call.function.name} with args {tool_call.function.arguments}")
                 tool_result = await _execute_tool(tool_call)
+                logger.info(f"[ChatFlow] Tool Result: {tool_result}")
                 messages.append(
                     {
                         "role": "tool",
@@ -123,8 +136,9 @@ async def handle_chat(event: GroupMessageEvent):
                 print(str(tool_result))
 
             # --- Stage 2: Final Response (Stream) ---
+            _log_payload({"messages": messages, "tools": tools, "stage": "after_tools"}) # Log Full Payload
             stream = await AIService.chat_completion(
-                messages, tools=tool_registry.get_tools(), stream=True
+                messages, tools=tools, stream=True
             )
             async for resp in stream:
                 delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
@@ -203,6 +217,28 @@ async def handle_chat(event: GroupMessageEvent):
 # --- Helper Functions ---
 
 
+def _log_payload(payload: dict):
+    """记录完整的 Payload 到 JSONL 文件"""
+    try:
+        log_dir = Path("/app/logs")
+        if not log_dir.exists():
+            log_dir.mkdir(parents=True, exist_ok=True)
+        
+        log_file = log_dir / "payloads.jsonl"
+        
+        # 移除工具定义中的某些冗长字段以减小体积？不，用户要“完整”的。
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "payload": payload
+        }
+        
+        # 使用 append 模式写入
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.error(f"Failed to log payload: {e}")
+
+
 # _record_assistant_msg Removed. No longer needed as we commit transaction directly.
 
 
@@ -247,12 +283,28 @@ def _build_system_prompt(group_id: str, memory_context: str) -> str:
 
 
 async def _execute_tool(tool_call) -> str:
+    args_str = tool_call.function.arguments
     try:
         # Standard Tool Call Handling
         func_name = tool_call.function.name
-        args_str = tool_call.function.arguments
+        
+        try:
+            args = json.loads(args_str)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Tool arguments JSON parse failed: {e}. Raw args: {repr(args_str)}")
+            # Attempt simple repair for truncated JSON
+            if "Unterminated string" in str(e):
+                try:
+                    # Try closing the JSON object blindly
+                    logger.info("Attempting to repair truncated JSON...")
+                    fixed_args = json.loads(args_str + '"}')
+                    args = fixed_args
+                    logger.info("JSON repair successful.")
+                except json.JSONDecodeError:
+                    return f"Error executing tool (JSON Error): {e}. The arguments provided were invalid JSON."
+            else:
+                return f"Error executing tool (JSON Error): {e}. The arguments provided were invalid JSON."
 
-        args = json.loads(args_str)
         tool_res = await tool_registry.dispatch(func_name, args)
 
         # Handle generator (Voice)
@@ -292,4 +344,5 @@ async def _execute_tool(tool_call) -> str:
         return history_content.strip()
 
     except Exception as e:
+        logger.error(f"Error executing tool '{tool_call.function.name}': {e}")
         return f"Error executing tool: {e}"
