@@ -35,7 +35,7 @@ async def handle_chat(event: GroupMessageEvent):
     sender_id = splited_info["sender_id"]
     group_id = splited_info["group_id"]
 
-    # 1. Update Context
+    # 1. Update Context (Append to Buffer A)
     LISTENER.listen(simulated_msg)
 
     # 2. Check Lock
@@ -47,6 +47,8 @@ async def handle_chat(event: GroupMessageEvent):
 
     # 3. Initialize Buffer
     sb = SentenceBuffer()
+    # 记录完整的 AI 回复，用于后续 Commit
+    full_ai_response_for_commit = ""
 
     try:
         # 4. Prepare Context & Prompts
@@ -63,11 +65,18 @@ async def handle_chat(event: GroupMessageEvent):
         # 4.2 Build System Prompt
         system_prompt = _build_system_prompt(group_id, memory_context)
 
-        # 4.3 Build Message History
-        messages = _build_message_history(group_id, system_prompt)
+        # 4.3 Build Message History (Wait, this is now System + Committed History + Pending Buffer)
+        # Note: We do NOT append System Prompt inside LISTENER, so we do it here.
+        context_msgs = LISTENER.get_context_and_prepare_commit(group_id)
+        
+        # Check if there is anything to say (Buffer might be empty if just triggered?)
+        # But even if buffer is empty, maybe previous context is enough? 
+        # Usually buffer has at least the current triggering msg.
+        
+        messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": system_prompt}]
+        messages.extend(context_msgs)
 
         # 5. Core Chat Loop
-        full_ai_response = ""
 
         async def _send_text(text: str):
             for char in text:
@@ -86,13 +95,11 @@ async def handle_chat(event: GroupMessageEvent):
                         ]
                         for sub_line in sub_lines:
                             await ai_chat.send(sub_line)
-                            # Self-correction: Add own msg to context
-                            _record_assistant_msg(group_id, sub_line)
                             await asyncio.sleep(PLUGIN_CONFIG.SEND_INTERVAL)
 
         async def _process_stream_segment(segment: str):
-            nonlocal full_ai_response
-            full_ai_response += segment
+            nonlocal full_ai_response_for_commit
+            full_ai_response_for_commit += segment
             await _send_text(segment)
 
         # --- Stage 1: Intent Detection (Non-Stream) ---
@@ -136,25 +143,58 @@ async def handle_chat(event: GroupMessageEvent):
                 r"^(Miku[:：])+", "", remain_text, flags=re.IGNORECASE
             ).strip()
             if remain_text:
-                full_ai_response += remain_text
+                full_ai_response_for_commit += remain_text
                 await ai_chat.send(remain_text)
-                _record_assistant_msg(group_id, remain_text)
 
-        # 7. Memory Consolidation (Background)
-        if query_text and full_ai_response:
+        # 7. COMMIT TRANSACTION (The most important step for new context manager)
+        # 必须确保 AI 回复不为空才提交，否则可能会丢失 User 消息但不记录 AI 回复？
+        # 不，即使 AI 回复为空（罕见），User 的消息也应该被 Commit 进历史，否则就永久丢失了。
+        # 但如果出错（Exception），则不 Commit，这样下次重试时 Buffer 还在。
+        # 这里已经在 try 块的最后，说明没有 Exception。
+        
+        # Format the AI response properly for storage (Miku: content)
+        # Note: The ContextManager expects just the content, it will format or store as Assistant role.
+        # But wait, our previous logic for `_record_assistant_msg` was:
+        # "Miku: content" -> Listener.listen -> which treats it as user msg? No. 
+        
+        # Old logic: `_record_assistant_msg` called `LISTENER.listen`.
+        # New logic: We call `commit_transaction`.
+        
+        # However, we need to be careful: `full_ai_response_for_commit` is just the text content.
+        # DeepSeek expects "Assistant: content".
+        # The `commit_transaction` method takes `ai_response_content`.
+        # We should probably format it as "Miku: ..." inside the content?
+        # NO. DeepSeek sees Assistant Role. The content should be the raw text "大家好".
+        # But wait, in `SimulatedGroupMsgListener.get_context`, we used to just return msg['content'].
+        # And user msgs were formatted as "Name: Content".
+        # Assistant msgs were just "Content".
+        # So here we should pass just the content.
+        
+        # Clean up the "Miku:" prefix from the response if it exists (model sometimes hallucinates it)
+        clean_response = re.sub(r"^Miku:\s*", "", full_ai_response_for_commit, flags=re.IGNORECASE).strip()
+        
+        LISTENER.commit_transaction(group_id, clean_response)
+
+        # 8. Memory Consolidation (Background)
+        # Note: We use the `messages` list which contains the context used for THIS generation.
+        if query_text and clean_response:
             asyncio.create_task(
                 memory_service.save_chat_memory(
                     str(sender_id),
                     group_id,
                     simulated_msg.info["name"],
                     PLUGIN_CONFIG.AI_NAME,
-                    full_ai_response,
-                    LISTENER.get_context(group_id),
+                    clean_response,
+                    # We need to pass the conversation used. `messages` includes System Prompt.
+                    # save_chat_memory filters for user/assistant roles.
+                    messages, 
                 )
             )
 
     except Exception as e:
         logger.error(f"AI Chat Error: {e}")
+        import traceback
+        traceback.print_exc()
         await ai_chat.send("唔...脑子有点乱，等下再聊吧。")
     finally:
         IS_CHATTING = False
@@ -163,14 +203,7 @@ async def handle_chat(event: GroupMessageEvent):
 # --- Helper Functions ---
 
 
-def _record_assistant_msg(group_id: str, content: str):
-    group_msg = SimulatedGroupMsg(
-        group_id,
-        PLUGIN_CONFIG.AI_NAME,
-        PLUGIN_CONFIG.ROLE_ASSISTANT,
-        f"{PLUGIN_CONFIG.AI_NAME}: {content}",
-    )
-    LISTENER.listen(group_msg)
+# _record_assistant_msg Removed. No longer needed as we commit transaction directly.
 
 
 def _build_system_prompt(group_id: str, memory_context: str) -> str:
@@ -210,11 +243,7 @@ def _build_system_prompt(group_id: str, memory_context: str) -> str:
     return current_sys_prompt
 
 
-def _build_message_history(group_id: str, system_prompt: str) -> list[dict]:
-    messages = [{"role": PLUGIN_CONFIG.ROLE_SYSTEM, "content": system_prompt}]
-    context = LISTENER.get_context(group_id)
-    messages.extend(context)
-    return messages
+# _build_message_history Removed. Logic moved to main handler.
 
 
 async def _execute_tool(tool_call) -> str:
