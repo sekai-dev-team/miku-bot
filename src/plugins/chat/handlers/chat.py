@@ -116,7 +116,9 @@ async def handle_chat(event: GroupMessageEvent):
                 print(str(tool_result))
 
             # --- Stage 2: Final Response (Stream) ---
-            stream = await AIService.chat_completion(messages, stream=True)
+            stream = await AIService.chat_completion(
+                messages, tools=tool_registry.get_tools(), stream=True
+            )
             async for resp in stream:
                 delta = resp.choices[PLUGIN_CONFIG.TOP_INDEX].delta
                 if delta.content:

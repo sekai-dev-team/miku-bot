@@ -308,9 +308,15 @@ class MemoryService:
 
         if not instruction:
             instruction = (
-                f"【记忆提取指令】\n"
+                f"【记忆提取指令 (Memory Extraction Directive)】\n"
                 f"目标用户: [{user_name}]\n"
-                f"请仅提取关于 {user_name} 的新事实、偏好或经历。如果没有则不提取。"
+                f"请分析上述对话，**仅提取**关于 {user_name} 的长期事实、偏好或经历。\n\n"
+                f"**核心规则**:\n"
+                f"1. **去噪**: 忽略即时状态(如'饿了')、情绪宣泄(如'草')、玩笑话及对AI功能的询问。\n"
+                f"2. **整合**: 将零散的句子整合成完整的语义。例如把'脑子兜不住'和'玩鸣潮导致的'整合成一条因果描述。\n"
+                f"3. **保守**: 如果不确定是否为长期事实，则**不提取**。宁缺毋滥。\n"
+                f"4. **格式**: 必须以 'User' 开头，使用中文。\n\n"
+                f"如果没有值得记录的新事实，请直接返回空字符串。"
             )
 
         memory_messages.append({"role": "user", "content": instruction})
