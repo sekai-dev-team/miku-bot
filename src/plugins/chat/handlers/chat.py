@@ -384,7 +384,13 @@ def _repair_json(json_str: str) -> str:
     # 3. Remove trailing commas (e.g., {"a": 1,})
     fixed_str = re.sub(r',\s*([}\]])', r'\1', fixed_str)
 
-    # 4. Balance braces/brackets
+    # 4. Try closing unclosed strings at the very end (if truncating)
+    # This is risky but helps with cutoff outputs.
+    # We do this BEFORE balancing braces so that we get {"k": "v"} instead of {"k": "v}"}
+    if fixed_str.count('"') % 2 != 0:
+         fixed_str += '"'
+
+    # 5. Balance braces/brackets
     open_braces = fixed_str.count('{') - fixed_str.count('}')
     if open_braces > 0:
         fixed_str += '}' * open_braces
@@ -393,15 +399,4 @@ def _repair_json(json_str: str) -> str:
     if open_brackets > 0:
         fixed_str += ']' * open_brackets
         
-    # 5. Try closing unclosed strings at the very end (if truncating)
-    # This is risky but helps with cutoff outputs.
-    # Check if we have an odd number of quotes
-    if fixed_str.count('"') % 2 != 0:
-         fixed_str += '"'
-         # Re-balance if adding quote messed up structure? 
-         # Usually if it ends with ", we just need to close the object.
-         open_braces = fixed_str.count('{') - fixed_str.count('}')
-         if open_braces > 0:
-            fixed_str += '}' * open_braces
-
     return fixed_str
