@@ -36,7 +36,7 @@ class EmbeddingService:
         """
         if not text:
             return []
-        return await self.get_embeddings([text])[0]
+        return (await self.get_embeddings([text]))[0]
 
     async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
