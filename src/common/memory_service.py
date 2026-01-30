@@ -1,17 +1,11 @@
 import asyncio
-import os
-import functools
 from typing import List, Dict, Any, Optional
-from pathlib import Path
-from mem0 import Memory
-from .config import GLOBAL_AI_CONFIG
-from .config_manager import config_manager
 from nonebot import logger
 
+from .memory.manager import memory_manager
 
 class MemoryService:
     _instance = None
-    _memory: Optional[Memory] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -19,254 +13,101 @@ class MemoryService:
         return cls._instance
 
     async def initialize(self):
-        """Initialize connection to Mem0."""
+        """
+        初始化 Miku-Memory-Layer (MML) 系统。
+        替代原有的 mem0 初始化。
+        """
         try:
-            # --- DEBUG: Environment Probe ---
-            import sys
-            import sqlite3
-
-            logger.info(
-                f"DEBUG PROBE: sqlite3.sqlite_version = {sqlite3.sqlite_version}"
-            )
-            logger.info(
-                f"DEBUG PROBE: sqlite3 path = {getattr(sqlite3, '__file__', 'unknown')}"
-            )
-            logger.info(
-                f"DEBUG PROBE: sys.modules['sqlite3'] = {sys.modules.get('sqlite3')}"
-            )
-            try:
-                import chromadb
-
-                logger.info(
-                    f"DEBUG PROBE: chromadb imported successfully. Version: {chromadb.__version__}"
-                )
-            except ImportError as e:
-                logger.error(f"DEBUG PROBE: chromadb import FAILED: {e}")
-            except Exception as e:
-                logger.error(
-                    f"DEBUG PROBE: chromadb import raised unexpected exception: {e}"
-                )
-            # --------------------------------
-
-            config = config_manager.get_config("memory")
-
-            # 基础路径配置
-            db_path = config.get("db_path", "./data/memory_store")
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-            # 设置环境变量以适配 DeepSeek (绕过 mem0 配置限制)
-            if GLOBAL_AI_CONFIG.base_url:
-                os.environ["OPENAI_BASE_URL"] = GLOBAL_AI_CONFIG.base_url
-                logger.info(f"Set OPENAI_BASE_URL to {GLOBAL_AI_CONFIG.base_url}")
-
-            # Mem0 配置
-            prompts_config = config_manager.get_config("prompts")
-            custom_prompt = prompts_config.get("memory_extraction")
-
-            if not custom_prompt:
-                logger.warning(
-                    "Memory extraction prompt not found in config, using default fallback."
-                )
-                custom_prompt = (
-                    "你是一位专业的记忆管理专家。你的任务是从对话中提取关于用户的简洁、客观的事实（FACTS），用于构建用户画像。\n"
-                    "规则：\n"
-                    "1. **主语明确**：提取的事实必须以 'User' 开头。例如 'User 喜欢抹茶'，禁止省略主语。\n"
-                    "2. **过滤琐事**：严厉忽略无意义的闲聊、情绪宣泄（如'急'、'草'、'哈哈'）、即时状态（如'在吗'、'去吃饭了'）以及对AI功能的询问。\n"
-                    "3. **事实导向**：只记录用户的偏好、背景信息、观点或长期计划。不要记录具体的对话过程。\n"
-                    "   - ❌ 错误：'User 说这句急' -> 忽略\n"
-                    "   - ❌ 错误：'User 问能不能用港卡' -> ✅ 正确：'User 关注港卡支付或海外AI服务' (提取意图)\n"
-                    "   - ❌ 错误：'喜欢抹茶' (缺主语) -> ✅ 正确：'User 喜欢抹茶口味'\n"
-                    "4. **指代消解**：将 '它'、'这个' 等代词替换为明确的名词。\n"
-                    "5. **语言要求**：提取出的记忆内容请使用**简体中文**。"
-                )
-
-            mem0_config = {
-                "version": "v1.1",
-                "vector_store": {
-                    "provider": "chroma",
-                    "config": {
-                        "path": str(Path(db_path).absolute()),
-                        "collection_name": "miku_memories",
-                    },
-                },
-                "llm": {
-                    "provider": "openai",
-                    "config": {
-                        "api_key": GLOBAL_AI_CONFIG.api_key,
-                        "model": GLOBAL_AI_CONFIG.chat_model,
-                        "max_tokens": 1000,
-                        "temperature": 0.1,
-                    },
-                },
-                "embedder": {
-                    "provider": config.get("embedder_provider", "openai"),
-                    "config": {
-                        "api_key": config.get(
-                            "embedder_api_key", GLOBAL_AI_CONFIG.api_key
-                        ),
-                        "model": config.get("embedder_model", "text-embedding-3-small"),
-                    },
-                },
-                "custom_prompt": custom_prompt,
-            }
-
-            # 内存节省模式：使用本地 CPU 嵌入模型
-            if config.get("use_local_embedder", True):
-                mem0_config["embedder"] = {
-                    "provider": "huggingface",
-                    "config": {
-                        "model": config.get(
-                            "local_embedder_model",
-                            "sentence-transformers/all-MiniLM-L6-v2",
-                        ),
-                    },
-                }
-
-            self._memory = Memory.from_config(mem0_config)
-            logger.info(f"MemoryService initialized with db_path: {db_path}")
+            await memory_manager.initialize()
+            logger.info("MemoryService (MML Architecture) initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize MemoryService: {e}")
-            self._memory = None
 
     async def add(
         self, data: str, user_id: str, metadata: Optional[Dict[str, Any]] = None
     ):
         """
-        异步添加记忆。
-        使用 functools.partial 确保参数以关键字形式传递，避免位置参数错误。
+        [兼容接口] 添加记忆。
+        在新架构中，我们不再手动添加零碎的 Fact。
+        为了兼容性，我们将这些数据视为一次特殊的对话记录存入 L1 缓存。
         """
-        if not self._memory:
-            raise RuntimeError("MemoryService is not initialized.")
-
         try:
-            loop = asyncio.get_event_loop()
-            # 修正：使用 partial 传递关键字参数
-            func = functools.partial(
-                self._memory.add, messages=data, user_id=user_id, metadata=metadata
+            # 将外部强制添加的记忆视为一次 Assistant 的自我陈述
+            await memory_manager.add_message(
+                user_id=user_id,
+                user_name="System",
+                ai_response=str(data),
+                context_msgs=[] # 空上下文
             )
-            result = await loop.run_in_executor(None, func)
-
-            # 记录提取的事实
-            if result and isinstance(result, list):
-                for res in result:
-                    event = res.get("event")
-                    content = res.get("data")
-                    if event == "add":
-                        logger.info(f"Memory Extracted for user {user_id}: {content}")
-                    elif event == "update":
-                        logger.info(f"Memory Updated for user {user_id}: {content}")
-            else:
-                logger.debug(f"Memory task completed for user {user_id}")
-
+            logger.debug(f"Legacy add_memory called for user {user_id}, redirected to L1 buffer.")
         except Exception as e:
-            logger.error(f"Error adding memory: {e}")
+            logger.error(f"Error in add_memory: {e}")
 
     async def search(
         self, query: str, user_id: str, limit: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        搜索相关记忆。
+        [兼容接口] 搜索记忆。
+        返回相关的情境记忆 (L2 Summaries)。
         """
-        if not self._memory:
-            return []
-
         try:
-            loop = asyncio.get_event_loop()
-            # 修正：使用 partial 传递关键字参数
-            func = functools.partial(
-                self._memory.search, query=query, user_id=user_id, limit=limit
-            )
-            results = await loop.run_in_executor(None, func)
-
-            if results:
-                # 尝试解析 results 结构，防止日志报错
-                try:
-                    memory_summaries = [
-                        r.get("memory") for r in results if isinstance(r, dict)
-                    ]
-                    logger.info(
-                        f"Memories Found for user {user_id} (query: '{query}'): {memory_summaries}"
-                    )
-                except Exception:
-                    logger.info(
-                        f"Memories Found for user {user_id}: {len(results)} items"
-                    )
-            else:
-                logger.debug(
-                    f"No relevant memories found for user {user_id} with query: '{query}'"
-                )
-
-            return results
+            # 这里我们需要手动调用 vector_store，或者通过 manager 暴露
+            # 为了简单，我们临时构造一个符合旧接口返回格式的列表
+            # 但实际上，retrieve_formatted_memory 才是被主要调用的方法
+            from .memory.vector_store import vector_store
+            from .memory.embedding import embedding_service
+            
+            vec = await embedding_service.get_embedding(query)
+            if not vec:
+                return []
+                
+            results = vector_store.search_similar(user_id, vec, limit=limit)
+            
+            # 转换为 mem0 风格的返回格式，防止调用方崩溃
+            formatted_results = []
+            for r in results:
+                formatted_results.append({
+                    "memory": r["content"],
+                    "metadata": r["metadata"],
+                    "score": 0.0 # ChromaDB 默认 API 可能不直接返回 score，或者需要调整
+                })
+            return formatted_results
         except Exception as e:
             logger.error(f"Error searching memory: {e}")
             return []
 
     async def get_all(self, user_id: str) -> List[Dict[str, Any]]:
         """
-        获取用户的所有记忆。
+        [兼容接口] 获取所有记忆。
+        返回 L3 用户画像作为唯一的核心记忆。
         """
-        if not self._memory:
-            return []
         try:
-            loop = asyncio.get_event_loop()
-            # 修正：使用 partial 传递关键字参数，解决 "takes 1 positional argument but 2 were given"
-            func = functools.partial(self._memory.get_all, user_id=user_id)
-            return await loop.run_in_executor(None, func)
+            from .memory.profile_store import profile_store
+            profile = profile_store.get_profile(user_id)
+            if profile:
+                return [{"memory": profile, "metadata": {"type": "profile"}}]
+            return []
         except Exception as e:
             logger.error(f"Error getting all memories: {e}")
             return []
 
     async def delete(self, memory_id: str):
         """
-        根据 ID 删除记忆。
+        [兼容接口] 删除记忆。
+        暂不支持删除特定的 L2/L3 记忆片段。
         """
-        if not self._memory:
-            return
-        try:
-            loop = asyncio.get_event_loop()
-            # 修正：mem0 v1.1 使用 memory_id 而不是 vector_id
-            func = functools.partial(self._memory.delete, memory_id=memory_id)
-            await loop.run_in_executor(None, func)
-            logger.info(f"Memory deleted: {memory_id}")
-        except Exception as e:
-            logger.error(f"Error deleting memory {memory_id}: {e}")
-            raise e  # 向上抛出异常，让前端能感知到失败
+        logger.warning("delete_memory is not supported in MML architecture yet.")
+        pass
 
     async def retrieve_formatted_memory(self, user_id: str, query_text: str) -> str:
         """
-        检索并格式化记忆，供 Prompt 使用。
+        核心接口：为 Prompt 检索并格式化记忆。
         """
-        memories = await self.search(query_text, user_id=user_id)
-        if isinstance(memories, dict) and "results" in memories:
-            memories = memories["results"]
-
-        if not memories:
+        try:
+            return await memory_manager.get_context_for_prompt(user_id, query_text)
+        except Exception as e:
+            logger.error(f"Error retrieving formatted memory: {e}")
             return ""
-
-        memory_list = []
-        for m in memories:
-            if isinstance(m, dict):
-                content = m.get("memory") or m.get("text")
-                if content:
-                    memory_list.append(content)
-            elif isinstance(m, str):
-                memory_list.append(m)
-
-        if not memory_list:
-            return ""
-
-        formatted_memories = []
-        for m in memory_list:
-            # 简单的 heuristic: 如果没有显式的主语，加上 User
-            # 注意: 这里的 m 已经是提取过的 "User xxxx" 格式 (如果 prompt 遵循了指令)
-            # 但为了保险起见，可以检查一下
-            if not m.lower().strip().startswith("user"):
-                m = f"User {m}"
-            formatted_memories.append(f"* {m}")
-
-        return "\n\n## 关于该用户的记忆 (User Profile)\n" + "\n".join(
-            formatted_memories
-        )
 
     async def save_chat_memory(
         self,
@@ -278,64 +119,17 @@ class MemoryService:
         context_msgs: List[Dict[str, str]],
     ):
         """
-        分析并保存对话记忆。
-        :param context_msgs: 最近的对话上下文 [{"role": "user"|"assistant", "content": "..."}]
+        核心接口：保存对话上下文。
         """
-        memory_messages = []
-
-        # 1. 构建用于提取记忆的上下文
-        # 限制上下文长度，例如最近 20 条
-        for msg in context_msgs[-20:]:
-            # 兼容字典和对象 (OpenAI ChatCompletionMessage)
-            if hasattr(msg, "role"):
-                role = msg.role
-                content = getattr(msg, "content", "")
-            elif isinstance(msg, dict):
-                role = msg.get("role")
-                content = msg.get("content")
-            else:
-                continue
-
-            if role == "assistant":
-                memory_messages.append(
-                    {"role": "assistant", "content": f"{ai_name}: {content}"}
-                )
-            elif role == "user":
-                memory_messages.append({"role": "user", "content": content})
-
-        # 2. 获取提取指令
-        prompts_config = config_manager.get_config("prompts")
-        template = prompts_config.get("memory_instruction")
-
-        instruction = ""
-        if template:
-            try:
-                instruction = template.format(current_user_name=user_name)
-            except Exception:
-                pass
-
-        if not instruction:
-            instruction = (
-                f"【记忆提取指令 (Memory Extraction Directive)】\n"
-                f"目标用户: [{user_name}]\n"
-                f"请分析上述对话，**仅提取**关于 {user_name} 的长期事实、偏好或经历。\n\n"
-                f"**核心规则**:\n"
-                f"1. **去噪**: 忽略即时状态(如'饿了')、情绪宣泄(如'草')、玩笑话及对AI功能的询问。\n"
-                f"2. **整合**: 将零散的句子整合成完整的语义。例如把'脑子兜不住'和'玩鸣潮导致的'整合成一条因果描述。\n"
-                f"3. **保守**: 如果不确定是否为长期事实，则**不提取**。宁缺毋滥。\n"
-                f"4. **格式**: 必须以 'User' 开头，使用中文。\n\n"
-                f"如果没有值得记录的新事实，请直接返回空字符串。"
+        try:
+            await memory_manager.add_message(
+                user_id=user_id,
+                user_name=user_name,
+                ai_response=ai_response,
+                context_msgs=context_msgs
             )
-
-        memory_messages.append({"role": "user", "content": instruction})
-        memory_messages.append(
-            {"role": "assistant", "content": f"{ai_name}: {ai_response}"}
-        )
-        print(memory_messages)
-        # 3. 执行添加
-        await self.add(
-            memory_messages, user_id=user_id, metadata={"group_id": group_id}
-        )
+        except Exception as e:
+            logger.error(f"Error saving chat memory: {e}")
 
 
 # 单例导出
@@ -351,7 +145,6 @@ try:
         await memory_service.initialize()
 
 except ValueError:
-    # 允许在非 NoneBot 环境（如调试脚本）中导入
     logger.warning("NoneBot driver not found. MemoryService will not auto-initialize.")
 except ImportError:
     pass

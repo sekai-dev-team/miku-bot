@@ -217,6 +217,18 @@ async def handle_chat(event: GroupMessageEvent):
 # --- Helper Functions ---
 
 
+
+def _default_json_serializer(obj):
+    """Custom JSON serializer for objects not serializable by default json code"""
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "to_dict"):
+        return obj.to_dict()
+    if hasattr(obj, "__dict__"):
+        return obj.__dict__
+    return str(obj)
+
+
 def _log_payload(payload: dict):
     """记录完整的 Payload 到 JSONL 文件"""
     try:
@@ -226,7 +238,6 @@ def _log_payload(payload: dict):
         
         log_file = log_dir / "payloads.jsonl"
         
-        # 移除工具定义中的某些冗长字段以减小体积？不，用户要“完整”的。
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "payload": payload
@@ -234,7 +245,7 @@ def _log_payload(payload: dict):
         
         # 使用 append 模式写入
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+            f.write(json.dumps(log_entry, ensure_ascii=False, default=_default_json_serializer) + "\n")
     except Exception as e:
         logger.error(f"Failed to log payload: {e}")
 
@@ -279,33 +290,45 @@ def _build_system_prompt(group_id: str, memory_context: str) -> str:
     return current_sys_prompt
 
 
-# _build_message_history Removed. Logic moved to main handler.
-
-
 async def _execute_tool(tool_call) -> str:
     args_str = tool_call.function.arguments
     try:
         # Standard Tool Call Handling
         func_name = tool_call.function.name
         
+        args = None
         try:
             args = json.loads(args_str)
         except json.JSONDecodeError as e:
             logger.warning(f"Tool arguments JSON parse failed: {e}. Raw args: {repr(args_str)}")
-            # Attempt simple repair for truncated JSON
-            if "Unterminated string" in str(e):
-                try:
-                    # Try closing the JSON object blindly
-                    logger.info("Attempting to repair truncated JSON...")
-                    fixed_args = json.loads(args_str + '"}')
-                    args = fixed_args
-                    logger.info("JSON repair successful.")
-                except json.JSONDecodeError:
-                    return f"Error executing tool (JSON Error): {e}. The arguments provided were invalid JSON."
-            else:
+            
+            # Enhanced Repair Strategy
+            try:
+                # 1. Try balancing braces/brackets
+                fixed_str = args_str.strip()
+                open_braces = fixed_str.count('{') - fixed_str.count('}')
+                if open_braces > 0:
+                    fixed_str += '}' * open_braces
+                open_brackets = fixed_str.count('[') - fixed_str.count(']')
+                if open_brackets > 0:
+                    fixed_str += ']' * open_brackets
+                
+                # 2. Try closing unclosed strings (common with truncation)
+                if "Unterminated string" in str(e):
+                    fixed_str += '"}' # Try to close the current string and the object
+                    
+                logger.info(f"Attempting JSON repair with: {fixed_str}")
+                args = json.loads(fixed_str)
+                logger.info("JSON repair successful.")
+            except json.JSONDecodeError as e2:
+                logger.error(f"JSON repair failed: {e2}")
                 return f"Error executing tool (JSON Error): {e}. The arguments provided were invalid JSON."
 
+        if args is None:
+             return "Error executing tool: Invalid JSON arguments."
+
         tool_res = await tool_registry.dispatch(func_name, args)
+
 
         # Handle generator (Voice)
         import inspect
